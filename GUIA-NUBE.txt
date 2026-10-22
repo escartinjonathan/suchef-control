@@ -1,0 +1,91 @@
+GUÍA PARA ACTIVAR LA SINCRONIZACIÓN EN LA NUBE (Firebase)
+=========================================================
+Tiempo estimado: 15 minutos. Solo se hace una vez. Es gratis (plan Spark de Firebase;
+confirma los límites vigentes en la consola, para este uso sobran).
+
+Qué lograrás: lo que captures en la laptop (proveedores, ventas, gastos, cierres...) aparece
+en el celular en segundos, y al revés. Sin internet la app sigue funcionando y envía los
+cambios al reconectar.
+
+
+PASO 1. Crear el proyecto
+  1. Entra a https://console.firebase.google.com con tu cuenta de Google.
+  2. "Crear un proyecto" -> nombre: control-suchef -> Continuar.
+  3. Desactiva Google Analytics -> "Crear proyecto" -> Continuar.
+
+PASO 2. Activar el inicio de sesión por correo
+  1. Menú izquierdo: Compilación (Build) -> Authentication -> "Comenzar".
+  2. Pestaña "Método de acceso" -> "Correo electrónico/contraseña".
+  3. Activa SOLO el primer interruptor (Correo electrónico/contraseña) -> Guardar.
+
+PASO 3. Crear la base de datos
+  1. Compilación -> Firestore Database -> "Crear base de datos".
+  2. Ubicación: elige la más cercana a México (la de EE. UU. también funciona bien).
+  3. Modo: "Producción" -> Crear.
+
+PASO 4. Poner las reglas de seguridad (muy importante)
+  1. En Firestore Database abre la pestaña "Reglas".
+  2. Borra todo y pega esto:
+
+     rules_version = '2';
+     service cloud.firestore {
+       match /databases/{database}/documents {
+         match /negocios/{uid}/{document=**} {
+           allow read, write: if request.auth != null && request.auth.uid == uid;
+         }
+       }
+     }
+
+  3. Pulsa "Publicar". Con esto, cada cuenta solo puede ver sus propios datos.
+
+PASO 5. Copiar los datos de conexión
+  1. Arriba a la izquierda, el engrane -> "Configuración del proyecto".
+  2. Baja a "Tus apps" -> botón web "</>" -> apodo: control-suchef -> "Registrar app".
+     (NO marques Firebase Hosting.)
+  3. Te mostrará un bloque "const firebaseConfig = { apiKey: ..., authDomain: ..., ... }".
+  4. Abre el archivo nube-config.js (con TextEdit o un editor de texto) y reemplaza cada
+     "PEGA_AQUI" por el valor que corresponde: apiKey, authDomain, projectId,
+     storageBucket, messagingSenderId y appId. Conserva las comillas.
+  5. Guarda el archivo.
+
+PASO 6. Subir los archivos a GitHub
+  Sube TODOS los archivos de la carpeta (index.html, sw.js, nube-config.js y el resto):
+     cd ~/Downloads/suchef-control
+     git add .
+     git commit -m "Sincronizacion en la nube"
+     git push
+  (Si usas la web de GitHub: Add file -> Upload files, y arrastra los archivos sueltos.)
+  Espera 1-2 minutos a que GitHub Pages publique.
+
+PASO 7. Dominio autorizado (solo si la app marca error de dominio)
+  Firebase -> Authentication -> Configuración -> Dominios autorizados -> Agregar dominio:
+  TU-USUARIO.github.io
+
+PASO 8. Conectar la laptop (primera vez)
+  1. Abre la app en la laptop (recarga con Cmd+Shift+R para traer la versión nueva).
+  2. Ajustes y respaldo -> Sincronización en la nube -> "Crear cuenta (primera vez)".
+  3. Escribe un correo y una contraseña (mínimo 6 caracteres). Guárdalos bien.
+  4. Verás "☁️ Sincronizado" arriba. Tus datos actuales de esa laptop ya subieron a la nube.
+
+PASO 9. Conectar el celular
+  1. Abre la app en el Android. Si la tienes instalada, ciérrala por completo y vuelve a
+     abrirla (a veces 2 veces) para que cargue la versión nueva.
+  2. Ajustes y respaldo -> Sincronización en la nube -> "Iniciar sesión" con el MISMO
+     correo y contraseña.
+  3. Los datos de la laptop aparecen en el celular.
+
+PASO 10. Probarlo
+  Agrega un proveedor en la laptop (Catálogos). En unos segundos debe verse en el celular.
+
+IMPORTANTE
+  - Si ya tienes datos en la laptop Y en el celular: se unen (no se pierde nada). Si el mismo
+    registro se editó en los dos, gana la última edición. Si hay un dato base (por ejemplo la
+    comisión del método Tarjeta) distinto en ambos, el primer dispositivo en conectarse
+    define el valor.
+  - Haz un respaldo (Ajustes y respaldo -> Descargar respaldo) ANTES de conectar el primer
+    dispositivo.
+  - "Borrar todo" o "Restaurar respaldo" con la nube conectada también afecta a tus otros
+    dispositivos. La app te lo advierte.
+  - La bitácora de cambios (Historial) es de cada dispositivo; no se sincroniza.
+  - Si olvidas la contraseña: Firebase -> Authentication -> Usuarios -> menú del usuario ->
+    "Restablecer contraseña".

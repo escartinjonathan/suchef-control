@@ -1,0 +1,3 @@
+Archivos de la app (subir TODOS a la raíz del repositorio):
+index.html, manifest.json, sw.js, icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png
+Opcional: logo.png (tu logotipo oficial, aparece en el encabezado)
