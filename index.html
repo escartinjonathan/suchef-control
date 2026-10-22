@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Su Chef a tu mesa · Control de caja</title>
+<meta name="theme-color" content="#F58448">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ====== COLORES OFICIALES (guía de identidad Su Chef) — fáciles de cambiar ====== */
+:root{
+  --naranja:#F58448;      /* Naranja principal */
+  --verde:#748451;        /* Verde oliva */
+  --carbon:#292728;       /* Carbón */
+  --crema:#F7F1E7;        /* Crema */
+  --blanco:#FFFFFF;       /* Blanco */
+  --verde-txt:#566339;    /* verde oliva oscurecido solo para texto (contraste) */
+  --linea:#E6DDCC;
+  --rojo:#B3261E;
+  --radio:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Lato,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--crema);color:var(--carbon);font-size:16px;line-height:1.4;-webkit-text-size-adjust:100%}
+h1,h2,h3,.mont{font-family:Montserrat,Lato,system-ui,sans-serif;margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:1fr;min-height:100vh}
+.side{display:none}
+.top{background:var(--carbon);color:var(--crema);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;border-bottom:4px solid var(--naranja)}
+.top img{height:34px;width:auto}
+.brand{font-family:Montserrat;font-weight:700;line-height:1.1}
+.brand small{display:block;font-weight:600;font-size:11px;letter-spacing:.18em;color:var(--naranja);text-transform:uppercase}
+main{padding:16px 14px 96px;max-width:1100px;width:100%;margin:0 auto}
+.bnav{position:fixed;left:0;right:0;bottom:0;background:var(--blanco);border-top:1px solid var(--linea);display:flex;z-index:30;padding-bottom:env(safe-area-inset-bottom)}
+.bnav button{flex:1;border:0;background:none;padding:8px 2px 7px;font-size:11px;font-weight:700;color:#6b6762;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+.bnav button span{font-size:20px;line-height:1}
+.bnav button.on{color:var(--carbon)}
+.bnav button.on span{filter:none}
+.bnav button.on::after{content:"";display:block;width:26px;height:3px;border-radius:3px;background:var(--naranja);margin-top:1px}
+@media(min-width:900px){
+  .app{grid-template-columns:240px 1fr}
+  .top{display:none}
+  .bnav{display:none}
+  .side{display:flex;flex-direction:column;background:var(--carbon);color:var(--crema);padding:20px 14px;position:sticky;top:0;height:100vh;gap:4px}
+  .side .brand{font-size:20px;padding:4px 10px 18px}
+  .side img{max-width:150px;margin:0 10px 10px}
+  .side button{display:flex;gap:10px;align-items:center;text-align:left;background:none;border:0;color:var(--crema);padding:11px 12px;border-radius:10px;cursor:pointer;font-weight:700}
+  .side button:hover{background:#3b3839}
+  .side button.on{background:var(--naranja);color:var(--carbon)}
+  main{padding:26px 28px 40px}
+}
+.h{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin:2px 0 14px}
+.h h2{font-size:22px}
+h3{font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:var(--verde-txt);margin:22px 0 8px}
+.datebar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.datebar input{padding:9px 10px;border:1px solid var(--linea);border-radius:10px;background:var(--blanco)}
+.btn{border:1px solid var(--linea);background:var(--blanco);padding:9px 14px;border-radius:10px;cursor:pointer;font-weight:700;min-height:40px}
+.btn.pri{background:var(--naranja);border-color:var(--naranja);color:var(--carbon)}
+.btn.ver{background:var(--verde);border-color:var(--verde);color:var(--blanco)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:5px 9px;min-height:30px;font-size:13px}
+.btn.del{color:var(--rojo)}
+.btn:active{transform:translateY(1px)}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr)}}
+.card{background:var(--blanco);border:1px solid var(--linea);border-radius:var(--radio);padding:12px 14px}
+.card .l{font-size:12px;font-weight:700;color:#6b6762;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-family:Montserrat;font-weight:800;font-size:20px;margin-top:3px;word-break:break-word}
+.card.big{background:var(--carbon);color:var(--crema);border-color:var(--carbon);grid-column:1/-1}
+.card.big .l{color:var(--naranja)}
+.card.big .v{font-size:30px}
+@media(min-width:700px){.card.big{grid-column:span 2}}
+.box{background:var(--blanco);border:1px solid var(--linea);border-radius:var(--radio);padding:6px 14px}
+.ln{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--linea);align-items:center}
+.ln:last-child{border-bottom:0}
+.ln.tot{font-weight:800;font-family:Montserrat}
+.pos{color:var(--verde-txt)}.neg{color:var(--rojo)}.mut{color:#6b6762;font-size:13px}
+.item{display:flex;gap:10px;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--linea)}
+.item:last-child{border-bottom:0}
+.item .m{flex:1;min-width:0}
+.item .m b{display:block;overflow:hidden;text-overflow:ellipsis}
+.item .a{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.amt{font-family:Montserrat;font-weight:700;white-space:nowrap}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--crema);border:1px solid var(--linea)}
+.tag.off{background:#eee;color:#777}
+.empty{padding:22px 6px;text-align:center;color:#6b6762}
+.warn{background:#FFF1E6;border:1px solid var(--naranja);border-radius:12px;padding:10px 12px;margin-bottom:14px;font-size:14px}
+.filters{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}
+@media(min-width:800px){.filters{grid-template-columns:repeat(6,1fr)}}
+label.f{display:block;font-size:12px;font-weight:700;color:#6b6762;margin-bottom:10px}
+label.f input,label.f select,label.f textarea{display:block;width:100%;margin-top:3px;padding:10px;border:1px solid var(--linea);border-radius:10px;background:var(--blanco);font-weight:400;font-size:16px;color:var(--carbon)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tw{overflow-x:auto;background:var(--blanco);border:1px solid var(--linea);border-radius:var(--radio)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--linea);text-align:left;white-space:nowrap}
+th{background:var(--crema);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+td.r,th.r{text-align:right}
+#modal{display:none;position:fixed;inset:0;z-index:100}
+#modal.open{display:block}
+.mbk{position:absolute;inset:0;background:rgba(41,39,40,.55)}
+.mbox{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:90vh;overflow:auto;background:var(--crema);border-radius:18px;padding:16px 18px;border-top:5px solid var(--naranja)}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.mh h3{margin:0;font-size:17px;color:var(--carbon);text-transform:none;letter-spacing:0}
+.x{border:0;background:none;font-size:20px;cursor:pointer}
+.mbtn{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+.err{color:var(--rojo);font-weight:700;font-size:14px;min-height:18px;margin:4px 0}
+.chk{display:flex;gap:8px;align-items:center;margin:4px 0 12px;font-size:14px}
+.menu button{display:block;width:100%;text-align:left;margin-bottom:8px}
+.ok{color:var(--verde-txt);font-weight:700}
+.nube{margin-left:auto;font-size:12px;font-weight:700;color:var(--crema);cursor:pointer;white-space:nowrap}
+.nube.side{margin:auto 10px 6px;color:var(--naranja);padding:8px 4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <div>
+    <header class="top">
+      <img src="logo.png" alt="" onerror="this.style.display='none'">
+      <div class="brand">Su Chef <small>a tu mesa · control</small></div>
+      <span class="nube" id="nubeTop" data-act="ir" data-t="ajustes"></span>
+    </header>
+    <main id="view"></main>
+  </div>
+</div>
+<nav class="bnav" id="bnav"></nav>
+<div id="modal"></div>
+
+<script src="nube-config.js"></script>
+<script>
+'use strict';
+//#PURE-START
+/* ================= LÓGICA PURA (sin pantalla): cálculos y pruebas ================= */
+const pad=n=>String(n).padStart(2,'0');
+const addDays=(f,n)=>{const [y,m,d]=f.split('-').map(Number);const dt=new Date(y,m-1,d+n);return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`};
+function rangoSemana(f){const [y,m,d]=f.split('-').map(Number);const dow=(new Date(y,m-1,d).getDay()+6)%7;const a=addDays(f,-dow);return [a,addDays(a,6)]}
+function rangoMes(f){const [y,m]=f.split('-').map(Number);const u=new Date(y,m,0).getDate();return [`${y}-${pad(m)}-01`,`${y}-${pad(m)}-${pad(u)}`]}
+/* Importes se guardan en CENTAVOS (enteros) para evitar errores de redondeo. */
+function parseMonto(t,permitirCero){
+  if(t==null)return null;
+  t=String(t).replace(/[$\s]/g,'');
+  if(/^\d+,\d{1,2}$/.test(t))t=t.replace(',','.');   // "12,5" -> 12.5
+  t=t.replace(/,/g,'');                                 // "1,250.50" -> 1250.50
+  if(!/^\d+(\.\d{1,2})?$/.test(t))return null;
+  const c=Math.round(parseFloat(t)*100);
+  if(!isFinite(c))return null;
+  if(c===0&&!permitirCero)return null;
+  return c;
+}
+function estadoBase(){
+  return {
+    v:1,
+    metodos:[{id:'ef',nombre:'Efectivo',tipo:'efectivo',activo:true},{id:'tj',nombre:'Tarjeta',tipo:'tarjeta',activo:true},{id:'tr',nombre:'Transferencia',tipo:'transferencia',activo:true}],
+    categorias:['Proveedores','Terceros','Nómina','Renta','Servicios','Insumos','Mantenimiento','Otros'].map((n,i)=>({id:'c'+i,nombre:n,activo:true})),
+    proveedores:[],terceros:[],cajasAhorro:[],
+    ventas:[],gastos:[],cajaMovs:[],tarjetaMovs:[],ahorroMovs:[],bolsaMovs:[],
+    cajaDia:{},          // { 'YYYY-MM-DD': {saldoInicial, contado} }
+    log:[],meta:{lastBackup:null}
+  };
+}
+const tipoMetodo=(S,id)=>{const m=S.metodos.find(x=>x.id===id);return m?m.tipo:'otro'};
+const sum=a=>a.reduce((s,x)=>s+x,0);
+function saldoInicialDe(S,f){
+  const c=S.cajaDia[f];
+  if(c&&c.saldoInicial!=null)return {valor:c.saldoInicial,manual:true};
+  // Si el día anterior tuvo cierre, se empieza con el fondo que se dejó; si no, con el último conteo.
+  const prev=Object.keys(S.cajaDia).filter(k=>k<f&&(S.cajaDia[k].cierre||S.cajaDia[k].contado!=null)).sort().pop();
+  if(!prev)return {valor:0,manual:false};
+  const p=S.cajaDia[prev];
+  return {valor:p.cierre?p.cierre.fondo:p.contado,manual:false};
+}
+function calcDia(S,f){
+  const ventas=S.ventas.filter(x=>x.fecha===f);
+  const gastos=S.gastos.filter(x=>x.fecha===f);
+  const cm=S.cajaMovs.filter(x=>x.fecha===f);
+  const porMetodo=S.metodos.map(m=>({id:m.id,nombre:m.nombre,activo:m.activo,tipo:m.tipo,total:sum(ventas.filter(v=>v.metodo===m.id).map(v=>v.importe))}));
+  const vTipo=t=>sum(ventas.filter(v=>tipoMetodo(S,v.metodo)===t).map(v=>v.importe));
+  const gTipo=t=>sum(gastos.filter(g=>tipoMetodo(S,g.metodo)===t).map(g=>g.importe));
+  const ventaTotal=sum(ventas.map(v=>v.importe));
+  const comisiones=sum(ventas.map(v=>v.comision||0));
+  const ventaEf=vTipo('efectivo'),ventaTj=vTipo('tarjeta'),ventaTr=vTipo('transferencia');
+  const pagosEfTot=gTipo('efectivo'),pagosTj=gTipo('tarjeta'),pagosTr=gTipo('transferencia');
+  // Pagos en efectivo hechos con el "dinero retirado" NO descuentan la caja del día.
+  const pagosEfRet=sum(gastos.filter(g=>g.origen==='retirado'&&tipoMetodo(S,g.metodo)==='efectivo').map(g=>g.importe));
+  const pagosEf=pagosEfTot-pagosEfRet;
+  const pagosProv=sum(gastos.filter(g=>g.destTipo==='proveedor').map(g=>g.importe));
+  const pagosTer=sum(gastos.filter(g=>g.destTipo==='tercero').map(g=>g.importe));
+  const gastoTotal=sum(gastos.map(g=>g.importe));
+  const entradas=sum(cm.filter(x=>x.tipo==='entrada').map(x=>x.importe));
+  const retiros=sum(cm.filter(x=>x.tipo==='retiro').map(x=>x.importe));
+  const ini=saldoInicialDe(S,f);
+  const esperado=ini.valor+ventaEf+entradas-pagosEf-retiros;
+  const contado=(S.cajaDia[f]&&S.cajaDia[f].contado!=null)?S.cajaDia[f].contado:null;
+  const cierre=(S.cajaDia[f]&&S.cajaDia[f].cierre)||null;
+  return {ventaTotal,comisiones,ventaEf,ventaTj,ventaTr,porMetodo,pagosEf,pagosEfRet,pagosTj,pagosTr,pagosProv,pagosTer,gastoTotal,
+          entradas,retiros,saldoInicial:ini.valor,saldoInicialManual:ini.manual,esperado,contado,
+          diferencia:contado==null?null:contado-esperado,cierre,cierreDesactualizado:!!cierre&&cierre.esperado!==esperado};
+}
+/* Comisión de la terminal (solo métodos tipo tarjeta): % + cargo fijo (+ IVA 16% opcional). Importes en centavos. */
+function comisionMetodo(m,importe){
+  if(!m||m.tipo!=='tarjeta')return 0;
+  const pct=m.comisionPct||0,fijo=m.comisionFijo||0;
+  let c=Math.round(importe*pct/100)+fijo;
+  if(m.comisionIva)c=Math.round(c*1.16);
+  return Math.max(0,Math.min(c,importe));
+}
+function parsePct(t){
+  if(t==null)return 0;
+  t=String(t).replace(/[%\s]/g,'').replace(',','.');
+  if(t==='')return 0;
+  if(!/^\d+(\.\d{1,3})?$/.test(t))return null;
+  const n=parseFloat(t);return n<=100?n:null;
+}
+/* Tarjeta y transferencia llegan a la MISMA cuenta bancaria. */
+const esBanco=(S,id)=>{const t=tipoMetodo(S,id);return t==='tarjeta'||t==='transferencia';};
+/* Saldo registrado de la cuenta bancaria (acumulado hasta 'hasta', inclusive). Solo lo que se captura. */
+function saldoTarjeta(S,hasta){
+  hasta=hasta||'9999-12-31';
+  const v=sum(S.ventas.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe-(x.comision||0)));   // neto de comisión
+  const g=sum(S.gastos.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe));
+  const e=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='entrada').map(x=>x.importe));
+  const s=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='salida').map(x=>x.importe));
+  return v+e-g-s;
+}
+function saldoAhorro(S,cajaId,hasta){
+  hasta=hasta||'9999-12-31';
+  const m=S.ahorroMovs.filter(x=>x.cajaId===cajaId&&x.fecha<=hasta);
+  return sum(m.filter(x=>x.tipo==='entrada').map(x=>x.importe))-sum(m.filter(x=>x.tipo==='retiro').map(x=>x.importe));
+}
+/* Dinero retirado ("bolsa"): lo que nos llevamos al cerrar, menos lo que se gasta con él, +/- ajustes manuales. */
+function calcBolsa(S,hasta){
+  hasta=hasta||'9999-12-31';
+  const cierres=Object.keys(S.cajaDia).filter(k=>k<=hasta&&S.cajaDia[k].cierre).map(k=>S.cajaDia[k].cierre.retirado);
+  const man=S.bolsaMovs.filter(x=>x.fecha<=hasta);
+  const gs=S.gastos.filter(g=>g.fecha<=hasta&&g.origen==='retirado'&&tipoMetodo(S,g.metodo)==='efectivo');
+  return sum(cierres)+sum(man.filter(x=>x.tipo==='entrada').map(x=>x.importe))-sum(man.filter(x=>x.tipo==='salida').map(x=>x.importe))-sum(gs.map(g=>g.importe));
+}
+/* ===== Sincronización en la nube: lógica pura (se prueba sin internet) =====
+   Cada registro (venta, gasto, proveedor, etc.) es un documento. Gana la última edición (u = hora).
+   meta.map guarda, por registro, lo último que se sincronizó: {h: contenido, u: hora, d: borrado}. */
+function aplanar(st){
+  const m=new Map();
+  Object.keys(st).forEach(c=>{
+    if(c==='v'||c==='meta'||c==='log')return;      // la bitácora se queda en cada dispositivo
+    const v=st[c];
+    if(Array.isArray(v))v.forEach(x=>{if(x&&x.id)m.set(c+'~'+x.id,{col:c,id:x.id,t:'a',json:JSON.stringify(x)});});
+    else if(v&&typeof v==='object')Object.keys(v).forEach(id=>m.set(c+'~'+id,{col:c,id,t:'o',json:JSON.stringify(v[id])}));
+  });
+  return m;
+}
+function _poner(st,col,id,obj,t){
+  if(st[col]===undefined)st[col]=(t==='a')?[]:{};
+  const v=st[col];
+  if(Array.isArray(v)){const i=v.findIndex(x=>x&&x.id===id);if(i>=0)v[i]=obj;else v.push(obj);}
+  else v[id]=obj;
+}
+function _quitar(st,col,id){
+  const v=st[col];
+  if(Array.isArray(v))st[col]=v.filter(x=>!(x&&x.id===id));
+  else if(v&&typeof v==='object')delete v[id];
+}
+/* Aplica cambios que llegaron de la nube. Devuelve true si cambió algo local. */
+function fusionarRemoto(st,meta,docs){
+  let cambio=false;const actual=aplanar(st);
+  docs.forEach(dd=>{
+    const k=dd.col+'~'+dd.id,e=meta.map[k],loc=actual.get(k);
+    if(e&&dd.u<=e.u)return;                                        // es el eco de lo que yo mismo mandé
+    if(e&&((loc&&e.h!==loc.json)||(!loc&&!e.d)))return;           // tengo un cambio local sin mandar: gana lo local
+    if(dd.d){if(loc){_quitar(st,dd.col,dd.id);cambio=true;}meta.map[k]={h:null,u:dd.u,d:true};}
+    else{if(!loc||loc.json!==dd.json){_poner(st,dd.col,dd.id,JSON.parse(dd.json),dd.t);cambio=true;}meta.map[k]={h:dd.json,u:dd.u};}
+    if(dd.u>(meta.maxU||0))meta.maxU=dd.u;
+  });
+  return cambio;
+}
+/* Calcula lo que hay que mandar a la nube (altas, ediciones y borrados locales). */
+function opsLocales(st,meta,u){
+  const actual=aplanar(st),ops=[];
+  actual.forEach((r,k)=>{const e=meta.map[k];if(!e||e.d||e.h!==r.json){ops.push({k,col:r.col,id:r.id,t:r.t,json:r.json,u,d:false});meta.map[k]={h:r.json,u};}});
+  Object.keys(meta.map).forEach(k=>{const e=meta.map[k];if(!actual.has(k)&&!e.d){const i=k.indexOf('~');ops.push({k,col:k.slice(0,i),id:k.slice(i+1),t:'a',json:'',u,d:true});meta.map[k]={h:null,u,d:true};}});
+  return ops;
+}
+function correrPruebas(){
+  const R=[];const t=(d,a,b)=>R.push({ok:a===b,desc:d+` (obtenido ${a}, esperado ${b})`});
+  const S=estadoBase();const f='2026-03-10';
+  const mk=(o)=>Object.assign({id:Math.random().toString(36).slice(2),hora:'12:00'},o);
+  S.ventas.push(mk({fecha:f,importe:50000,metodo:'ef'}),mk({fecha:f,importe:30000,metodo:'tj'}),mk({fecha:f,importe:20000,metodo:'tr'}));
+  S.cajaDia[f]={saldoInicial:100000,contado:139000};
+  S.cajaMovs.push(mk({fecha:f,tipo:'entrada',importe:10000}),mk({fecha:f,tipo:'retiro',importe:5000}));
+  S.gastos.push(mk({fecha:f,importe:15000,metodo:'ef',destTipo:'proveedor',categoria:'c0'}),mk({fecha:f,importe:8000,metodo:'tj',destTipo:'tercero',categoria:'c1'}));
+  let d=calcDia(S,f);
+  t('Venta total del día',d.ventaTotal,100000);
+  t('Venta en efectivo',d.ventaEf,50000);
+  t('Venta con tarjeta no entra a caja',d.ventaTj,30000);
+  t('Efectivo esperado = 1000+500+100-150-50',d.esperado,140000);
+  t('Diferencia = contado - esperado',d.diferencia,-1000);
+  t('Pagos a proveedores',d.pagosProv,15000);
+  t('Pagos a terceros',d.pagosTer,8000);
+  t('Pago con tarjeta no descuenta efectivo',d.pagosEf,15000);
+  t('Saldo cuenta = ventas tarjeta + transferencia - pagos tarjeta',saldoTarjeta(S),42000);
+  S.tarjetaMovs.push(mk({fecha:f,tipo:'salida',importe:2000}));
+  t('Saldo cuenta con retiro',saldoTarjeta(S),40000);
+  S.ventas[0].importe=60000;          // editar una venta actualiza todo
+  t('Editar venta actualiza esperado',calcDia(S,f).esperado,150000);
+  const f2='2026-03-11';
+  t('Saldo inicial sugerido = conteo del día anterior',calcDia(S,f2).saldoInicial,139000);
+  S.ahorroMovs.push(mk({cajaId:'a',fecha:f,tipo:'entrada',importe:50000}),mk({cajaId:'a',fecha:f2,tipo:'retiro',importe:20000}));
+  t('Saldo de caja de ahorro',saldoAhorro(S,'a'),30000);
+  t('Saldo ahorro al día 10',saldoAhorro(S,'a',f),50000);
+  t('Monto "1,250.50"',parseMonto('1,250.50'),125050);
+  t('Monto "$99"',parseMonto('$99'),9900);
+  t('Monto "12,5"',parseMonto('12,5'),1250);
+  t('Monto negativo inválido',parseMonto('-5'),null);
+  t('Monto cero inválido',parseMonto('0'),null);
+  t('Monto texto inválido',parseMonto('abc'),null);
+  t('0.1+0.2 sin error de flotantes',parseMonto('0.30'),30);
+  t('Semana (lunes a domingo)',rangoSemana('2026-03-11').join(' a '),'2026-03-09 a 2026-03-15');
+  t('Mes',rangoMes('2026-02-14').join(' a '),'2026-02-01 a 2026-02-28');
+  // --- Cierre de caja y dinero retirado ---
+  const S2=estadoBase();const g1='2026-03-10',g2='2026-03-11';
+  S2.ventas.push(mk({fecha:g1,importe:50000,metodo:'ef'}),mk({fecha:g1,importe:30000,metodo:'tj'}));
+  S2.cajaDia[g1]={saldoInicial:100000};
+  t('Cierre: esperado = 1000 + 500',calcDia(S2,g1).esperado,150000);
+  S2.cajaDia[g1].contado=150000;
+  S2.cajaDia[g1].cierre={esperado:150000,contado:150000,diferencia:0,fondo:100000,retirado:50000};
+  t('Nos llevamos = contado - fondo',S2.cajaDia[g1].cierre.contado-S2.cajaDia[g1].cierre.fondo,S2.cajaDia[g1].cierre.retirado);
+  t('Día siguiente inicia con el fondo que se dejó',calcDia(S2,g2).saldoInicial,100000);
+  t('Dinero retirado tras el cierre',calcBolsa(S2),50000);
+  S2.gastos.push(mk({fecha:g2,importe:12000,metodo:'ef',origen:'retirado',destTipo:'',categoria:'c5'}));
+  t('Gasto con dinero retirado NO baja la caja',calcDia(S2,g2).esperado,100000);
+  t('Gasto con dinero retirado: pagosEf de caja = 0',calcDia(S2,g2).pagosEf,0);
+  t('Gasto con dinero retirado queda registrado',calcDia(S2,g2).pagosEfRet,12000);
+  t('Dinero retirado baja con el gasto',calcBolsa(S2),38000);
+  S2.gastos.push(mk({fecha:g2,importe:3000,metodo:'ef',origen:'caja',destTipo:'',categoria:'c5'}));
+  t('Gasto pagado de caja sí baja la caja',calcDia(S2,g2).esperado,97000);
+  t('Gasto de caja no toca dinero retirado',calcBolsa(S2),38000);
+  S2.bolsaMovs.push(mk({fecha:g2,tipo:'entrada',importe:1000}),mk({fecha:g2,tipo:'salida',importe:500}));
+  t('Ajustes manuales de dinero retirado',calcBolsa(S2),38500);
+  S2.ventas.push(mk({fecha:g1,importe:1000,metodo:'ef'}));
+  t('Cambio después del cierre se detecta',calcDia(S2,g1).cierreDesactualizado,true);
+  const B=estadoBase();
+  B.ventas.push(mk({fecha:f,importe:10000,metodo:'tj'}),mk({fecha:f,importe:7000,metodo:'tr'}));
+  B.gastos.push(mk({fecha:f,importe:2500,metodo:'tr',categoria:'c0'}),mk({fecha:f,importe:500,metodo:'ef',categoria:'c0'}));
+  t('Cuenta bancaria: tarjeta y transferencia suman al mismo saldo',saldoTarjeta(B),14500);
+  t('Transferencia y tarjeta no entran a la caja',calcDia(B,f).esperado,-500);
+  t('Pago por transferencia no descuenta efectivo',calcDia(B,f).pagosEf,500);
+  const mp={tipo:'tarjeta',comisionPct:3.5,comisionFijo:0,comisionIva:false};
+  t('Comisión 3.5% de $1,000',comisionMetodo(mp,100000),3500);
+  t('Comisión con IVA 16%',comisionMetodo(Object.assign({},mp,{comisionIva:true}),100000),4060);
+  t('Comisión con cargo fijo',comisionMetodo({tipo:'tarjeta',comisionPct:2,comisionFijo:300},50000),1300);
+  t('Transferencia no lleva comisión',comisionMetodo({tipo:'transferencia',comisionPct:3.5},100000),0);
+  t('Sin configurar = sin comisión',comisionMetodo({tipo:'tarjeta'},100000),0);
+  t('Porcentaje "3,5%"',parsePct('3,5%'),3.5);
+  t('Porcentaje inválido',parsePct('abc'),null);
+  const K=estadoBase();
+  K.ventas.push(mk({fecha:f,importe:100000,metodo:'tj',comision:3500}),mk({fecha:f,importe:50000,metodo:'tr'}));
+  t('La venta total sigue siendo bruta',calcDia(K,f).ventaTotal,150000);
+  t('Comisiones del día',calcDia(K,f).comisiones,3500);
+  t('Saldo de la cuenta = ventas netas de comisión',saldoTarjeta(K),146500);
+  t('La comisión no afecta el efectivo',calcDia(K,f).ventaEf,0);
+  /* --- Sincronización entre dispositivos (simulada) --- */
+  const nube=new Map(),subir=ops=>ops.forEach(o=>nube.set(o.k,{col:o.col,id:o.id,t:o.t,json:o.json,u:o.u,d:o.d})),bajar=()=>[...nube.values()];
+  const A=estadoBase(),mA={map:{},maxU:0},Bd=estadoBase(),mB={map:{},maxU:0};
+  subir(opsLocales(A,mA,1000));
+  t('Sync: el primer dispositivo sube sus datos',nube.size>0,true);
+  t('Sync: un segundo dispositivo con los mismos datos base no cambia',fusionarRemoto(Bd,mB,bajar()),false);
+  A.proveedores.push({id:'p1',nombre:'Carnes del Bajío',activo:true});
+  const o2=opsLocales(A,mA,2000);
+  t('Sync: agregar un proveedor genera 1 cambio',o2.length,1);
+  subir(o2);
+  t('Sync: el proveedor aparece en el otro dispositivo',(fusionarRemoto(Bd,mB,bajar()),Bd.proveedores.length),1);
+  Bd.proveedores[0].nombre='Carnes del Bajío SA';
+  subir(opsLocales(Bd,mB,3000));
+  fusionarRemoto(A,mA,bajar());
+  t('Sync: una edición viaja de vuelta',A.proveedores[0].nombre,'Carnes del Bajío SA');
+  t('Sync: el eco de lo propio no cambia nada',fusionarRemoto(A,mA,bajar()),false);
+  A.proveedores=[];
+  subir(opsLocales(A,mA,4000));
+  fusionarRemoto(Bd,mB,bajar());
+  t('Sync: un borrado se replica',Bd.proveedores.length,0);
+  Bd.cajaDia['2026-01-01']={contado:500};
+  subir(opsLocales(Bd,mB,5000));
+  fusionarRemoto(A,mA,bajar());
+  t('Sync: registros por fecha (cajaDia) también viajan',A.cajaDia['2026-01-01'].contado,500);
+  Bd.cajaDia['2026-01-01']={contado:700};               // cambio local sin mandar
+  fusionarRemoto(Bd,mB,[{col:'cajaDia',id:'2026-01-01',t:'o',json:'{"contado":900}',u:5500,d:false}]);
+  t('Sync: un cambio local pendiente no se pisa',Bd.cajaDia['2026-01-01'].contado,700);
+  const ops6=opsLocales(Bd,mB,6000);
+  t('Sync: el cambio pendiente se manda después',ops6.length,1);
+  const C=estadoBase(),mC={map:{},maxU:0};
+  C.metodos[1].nombre='Tarjeta (local)';
+  fusionarRemoto(C,mC,[{col:'metodos',id:'tj',t:'a',json:JSON.stringify({id:'tj',nombre:'Tarjeta MP',tipo:'tarjeta',activo:true}),u:7000,d:false}]);
+  t('Sync: en el primer enlace, la nube manda sobre registros base',C.metodos[1].nombre,'Tarjeta MP');
+  return R;
+}
+//#PURE-END
+
+/* ================= UTILIDADES ================= */
+const $=s=>document.querySelector(s);
+const KEY='suchef_control_v1';
+const MXN=new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN'});
+const money=c=>MXN.format((c||0)/100);
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const hoy=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`};
+const ahora=()=>{const d=new Date();return `${pad(d.getHours())}:${pad(d.getMinutes())}`};
+const fmtF=f=>f?f.split('-').reverse().join('/'):'';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nombre=(arr,id)=>{const x=arr.find(y=>y.id===id);return x?x.nombre:''};
+const decimal=c=>(c/100).toFixed(2);
+
+let S=cargar();
+const UI={tab:'panel',fecha:hoy(),hist:{desde:'',hasta:'',tipo:'',cat:'',dest:'',metodo:''},rep:{modo:'dia',fecha:hoy()},ahorroSel:null,bitacora:false};
+
+function cargar(){
+  try{
+    const raw=localStorage.getItem(KEY);
+    if(raw){const o=JSON.parse(raw);return Object.assign(estadoBase(),o);}
+  }catch(e){console.error(e)}
+  return estadoBase();
+}
+function guardarLocal(){
+  try{localStorage.setItem(KEY,JSON.stringify(S));}
+  catch(e){alert('No se pudo guardar en este navegador. Descarga un respaldo desde Ajustes.');}
+}
+function guardar(){guardarLocal();if(typeof Nube!=='undefined'&&Nube.user)Nube.cambio();}
+function bit(accion,desc){S.log.push({ts:new Date().toISOString(),accion,desc});if(S.log.length>1000)S.log=S.log.slice(-1000);}
+
+/* ================= NAVEGACIÓN ================= */
+const TABS=[['panel','🏠','Panel del día'],['ventas','🧾','Ventas'],['gastos','💸','Gastos y pagos'],['caja','💵','Caja y efectivo'],['bolsa','👜','Dinero retirado'],['tarjeta','💳','Cuenta bancaria'],['ahorro','🐷','Cajas de ahorro'],['historial','📋','Historial'],['reportes','📊','Reportes'],['catalogos','🗂️','Catálogos'],['ajustes','⚙️','Ajustes y respaldo']];
+const BOTTOM=['panel','ventas','gastos','caja'];
+function ir(t){UI.tab=t;cerrar();render();window.scrollTo(0,0);}
+function renderNav(){
+  $('#side').innerHTML=`<img src="logo.png" alt="" onerror="this.style.display='none'"><div class="brand">Su Chef<small>a tu mesa · control</small></div>`+
+    TABS.map(([k,i,n])=>`<button class="${UI.tab===k?'on':''}" data-act="ir" data-t="${k}"><span>${i}</span>${n}</button>`).join('')+`<div class="nube side" data-act="ir" data-t="ajustes">${nubeBadge()}</div>`;
+  $('#bnav').innerHTML=BOTTOM.map(k=>{const T=TABS.find(x=>x[0]===k);return `<button class="${UI.tab===k?'on':''}" data-act="ir" data-t="${k}"><span>${T[1]}</span>${T[2].split(' ')[0]}</button>`}).join('')+
+    `<button class="${BOTTOM.includes(UI.tab)?'':'on'}" data-act="mas"><span>☰</span>Más</button>`;
+}
+
+/* ================= MODAL ================= */
+function modal(titulo,cuerpo,onSubmit,ok){
+  const m=$('#modal');
+  const pie=onSubmit?`<div class="err" id="merr"></div><div class="mbtn"><button type="button" class="btn ghost" data-act="cerrar">Cancelar</button><button class="btn pri" type="submit">${ok||'Guardar'}</button></div>`:'';
+  m.innerHTML=`<div class="mbk" data-act="cerrar"></div><div class="mbox"><div class="mh"><h3>${esc(titulo)}</h3><button class="x" data-act="cerrar" aria-label="Cerrar">✕</button></div><form id="mf" novalidate>${cuerpo}${pie}</form></div>`;
+  m.classList.add('open');
+  const f=$('#mf');
+  if(onSubmit)f.addEventListener('submit',e=>{e.preventDefault();const r=onSubmit(Object.fromEntries(new FormData(f)));const fin=x=>{if(x===true||x===undefined){cerrar();}else{$('#merr').textContent=x;}};if(r&&typeof r.then==='function'){$('#merr').textContent='Un momento…';r.then(fin);}else fin(r);});
+  else f.addEventListener('submit',e=>e.preventDefault());
+}
+function cerrar(){const m=$('#modal');m.classList.remove('open');m.innerHTML='';}
+
+/* ================= CAMPOS DE FORMULARIO ================= */
+const inp=(l,n,t,v,extra)=>`<label class="f">${l}<input name="${n}" type="${t}" value="${esc(v==null?'':v)}" ${extra||''}></label>`;
+const inpMonto=(n,v,l,extra)=>`<label class="f">${l||'Importe (MXN)'}<input name="${n}" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${v==null?'':decimal(v)}" ${extra||''}></label>`;
+const sel=(l,n,opts,v,extra)=>`<label class="f">${l}<select name="${n}" ${extra||''}>${opts.map(o=>`<option value="${esc(o[0])}" ${o[0]===v?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>`;
+function opcionesActivas(arr,actual){return arr.filter(x=>x.activo||x.id===actual).map(x=>[x.id,x.nombre+(x.activo?'':' (inactivo)')]);}
+const fechaHora=(r)=>`<div class="row2">${inp('Fecha','fecha','date',r?r.fecha:UI.fecha)}${inp('Hora','hora','time',r?r.hora:ahora())}</div>`;
+function valFH(d){if(!d.fecha||!d.hora)return 'Falta la fecha o la hora.';return null;}
+
+/* ================= GUARDAR / BORRAR ================= */
+const COLL={venta:'ventas',gasto:'gastos',caja:'cajaMovs',tarjeta:'tarjetaMovs',ahorro:'ahorroMovs',bolsa:'bolsaMovs'};
+const KIND_TXT={venta:'venta',gasto:'gasto',caja:'movimiento de caja',tarjeta:'movimiento de la cuenta bancaria',ahorro:'movimiento de ahorro',bolsa:'ajuste de dinero retirado'};
+function guardarRec(kind,id,datos){
+  const arr=S[COLL[kind]];let r;
+  if(id){r=arr.find(x=>x.id===id);Object.assign(r,datos,{editado:new Date().toISOString()});bit('Editó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);}
+  else{r=Object.assign({id:uid(),creado:new Date().toISOString()},datos);arr.push(r);bit('Creó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);}
+  guardar();return r;
+}
+function borrarRec(kind,id){
+  const arr=S[COLL[kind]];const r=arr.find(x=>x.id===id);if(!r)return;
+  if(kind==='caja'&&r.ahorroId){alert('Este movimiento viene de una caja de ahorro. Edítalo o bórralo desde la sección Cajas de ahorro.');return;}
+  if(!confirm(`¿Eliminar este ${KIND_TXT[kind]} de ${money(r.importe)} (${fmtF(r.fecha)})?\nEsta acción no se puede deshacer.`))return;
+  if(kind==='ahorro'&&r.link)S.cajaMovs=S.cajaMovs.filter(x=>x.id!==r.link);
+  S[COLL[kind]]=arr.filter(x=>x.id!==id);
+  bit('Eliminó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);
+  guardar();render();
+}
+
+/* ================= FORMULARIOS ================= */
+function formVenta(id){
+  const r=id?S.ventas.find(x=>x.id===id):null;
+  modal(r?'Editar venta':'Nueva venta',
+    fechaHora(r)+inpMonto('importe',r&&r.importe)+sel('Método de pago','metodo',opcionesActivas(S.metodos,r&&r.metodo),r?r.metodo:'ef')+
+    `<div id="comWrap">${inpMonto('comision',r&&r.comision?r.comision:null,'Comisión de la terminal (MXN) — se calcula sola, puedes corregirla')}<div class="mut" id="comInfo" style="margin:-6px 0 12px"></div></div>`+
+    inp('Nota o referencia (opcional)','nota','text',r&&r.nota),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero, por ejemplo 250.50';
+      let com=0;
+      if(tipoMetodo(S,d.metodo)==='tarjeta'){
+        com=String(d.comision||'').trim()===''?0:parseMonto(d.comision,true);
+        if(com==null)return 'La comisión no es válida (ejemplo: 35.00).';
+        if(com>imp)return 'La comisión no puede ser mayor a la venta.';
+      }
+      guardarRec('venta',id,{fecha:d.fecha,hora:d.hora,importe:imp,metodo:d.metodo,comision:com,nota:d.nota.trim()});UI.fecha=d.fecha;render();});
+  const fm=$('#mf'),ci=fm.elements['comision'],im=fm.elements['importe'],me=fm.elements['metodo'];
+  let manual=false;
+  const refrescar=escribir=>{
+    const m=S.metodos.find(x=>x.id===me.value),esT=!!m&&m.tipo==='tarjeta';
+    $('#comWrap').style.display=esT?'':'none';
+    if(!esT)return;
+    const imp=parseMonto(im.value);
+    if(escribir&&!manual)ci.value=imp?decimal(comisionMetodo(m,imp)):'';
+    const c=parseMonto(ci.value,true)||0;
+    const sinCfg=!(m.comisionPct||m.comisionFijo);
+    $('#comInfo').innerHTML=(imp?`Neto que llega a la cuenta: <b>${money(Math.max(0,imp-c))}</b>`:'')+(sinCfg&&!manual?`<br>⚠️ Este método no tiene comisión configurada. Defínela en Catálogos → Métodos de pago.`:'');
+  };
+  im.addEventListener('input',()=>refrescar(true));
+  me.addEventListener('change',()=>refrescar(true));
+  ci.addEventListener('input',()=>{manual=true;refrescar(false);});
+  refrescar(!r);
+}
+function opcionesDest(sel){
+  const p=S.proveedores.filter(x=>x.activo||sel==='p:'+x.id).map(x=>`<option value="p:${x.id}" ${sel==='p:'+x.id?'selected':''}>${esc(x.nombre)}${x.activo?'':' (inactivo)'}</option>`).join('');
+  const t=S.terceros.filter(x=>x.activo||sel==='t:'+x.id).map(x=>`<option value="t:${x.id}" ${sel==='t:'+x.id?'selected':''}>${esc(x.nombre)}${x.activo?'':' (inactivo)'}</option>`).join('');
+  return `<option value="">— Ninguno / otro —</option>${p?`<optgroup label="Proveedores">${p}</optgroup>`:''}${t?`<optgroup label="Terceros">${t}</optgroup>`:''}`;
+}
+function formGasto(id){
+  const r=id?S.gastos.find(x=>x.id===id):null;
+  const dsel=r&&r.destTipo?(r.destTipo==='proveedor'?'p:':'t:')+r.destId:'';
+  modal(r?'Editar gasto o pago':'Nuevo gasto o pago',
+    fechaHora(r)+inpMonto('importe',r&&r.importe)+
+    sel('Categoría','categoria',opcionesActivas(S.categorias,r&&r.categoria),r?r.categoria:'c0')+
+    sel('Forma de pago','metodo',opcionesActivas(S.metodos,r&&r.metodo),r?r.metodo:'ef')+
+    `<div id="origenWrap">${sel('Si pagas en efectivo, el dinero sale de','origen',[['caja','Caja del día'],['retirado','Dinero retirado (el que nos llevamos)']],(r&&r.origen)||'caja')}</div>`+
+    `<label class="f">Destinatario (proveedor o tercero)<select name="dest">${opcionesDest(dsel)}</select></label>`+
+    inp('Beneficiario (si no está en catálogo)','benef','text',r&&r.benef)+
+    inp('Descripción o nota','descripcion','text',r&&r.descripcion)+
+    inp('Comprobante o folio (opcional)','folio','text',r&&r.folio),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero, por ejemplo 250.50';
+      if(!d.categoria)return 'Elige una categoría.';
+      let destTipo='',destId='';if(d.dest){destTipo=d.dest[0]==='p'?'proveedor':'tercero';destId=d.dest.slice(2);}
+      guardarRec('gasto',id,{fecha:d.fecha,hora:d.hora,importe:imp,categoria:d.categoria,metodo:d.metodo,origen:tipoMetodo(S,d.metodo)==='efectivo'?(d.origen||'caja'):'caja',destTipo,destId,benef:d.benef.trim(),descripcion:d.descripcion.trim(),folio:d.folio.trim()});UI.fecha=d.fecha;render();});
+  const mt=$('#mf [name=metodo]'),ow=$('#origenWrap');const tg=()=>{ow.style.display=tipoMetodo(S,mt.value)==='efectivo'?'':'none';};mt.addEventListener('change',tg);tg();
+}
+function formCajaMov(id){
+  const r=id?S.cajaMovs.find(x=>x.id===id):null;
+  if(r&&r.ahorroId){alert('Este movimiento viene de una caja de ahorro. Edítalo desde la sección Cajas de ahorro.');return;}
+  modal(r?'Editar movimiento de caja':'Movimiento de efectivo en caja',
+    sel('Tipo','tipo',[['entrada','Entrada de efectivo'],['retiro','Retiro o salida de efectivo']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota (opcional)','nota','text',r&&r.nota),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
+      guardarRec('caja',id,{tipo:d.tipo,fecha:d.fecha,hora:d.hora,importe:imp,nota:d.nota.trim()});UI.fecha=d.fecha;render();});
+}
+function formTarjetaMov(id){
+  const r=id?S.tarjetaMovs.find(x=>x.id===id):null;
+  modal(r?'Editar movimiento de la cuenta':'Movimiento de la cuenta bancaria',
+    sel('Tipo','tipo',[['entrada','Entrada (depósito, ajuste a favor)'],['salida','Salida (retiro, comisión, ajuste en contra)']],r?r.tipo:'salida')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota o referencia','nota','text',r&&r.nota),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
+      guardarRec('tarjeta',id,{tipo:d.tipo,fecha:d.fecha,hora:d.hora,importe:imp,nota:d.nota.trim()});UI.fecha=d.fecha;render();});
+}
+function formAjusteTarjeta(){
+  const actual=saldoTarjeta(S);
+  modal('Ajustar saldo registrado',`<p class="mut">Saldo registrado actual: <b>${money(actual)}</b>. Escribe el saldo real de tu cuenta (tarjeta y transferencias) y se creará un movimiento de ajuste por la diferencia.</p>`+inpMonto('saldo',actual,'Saldo real (MXN)'),
+    d=>{const n=parseMonto(d.saldo,true);if(n==null)return 'Escribe un número válido (puede ser 0).';const dif=n-actual;if(dif===0)return 'El saldo ya coincide, no hay nada que ajustar.';
+      guardarRec('tarjeta',null,{tipo:dif>0?'entrada':'salida',fecha:hoy(),hora:ahora(),importe:Math.abs(dif),nota:'Ajuste manual de saldo'});render();},'Ajustar');
+}
+function formAhorroMov(id,cajaId){
+  const r=id?S.ahorroMovs.find(x=>x.id===id):null;
+  if(!S.cajasAhorro.some(c=>c.activo)&&!r){alert('Primero crea una caja de ahorro en Catálogos.');return;}
+  modal(r?'Editar movimiento de ahorro':'Movimiento de caja de ahorro',
+    sel('Caja de ahorro','cajaId',opcionesActivas(S.cajasAhorro,r?r.cajaId:cajaId),r?r.cajaId:(cajaId||S.cajasAhorro.find(c=>c.activo).id))+
+    sel('Tipo','tipo',[['entrada','Entrada (depositar a ahorro)'],['retiro','Retiro (sacar de ahorro)']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota (opcional)','nota','text',r&&r.nota)+
+    `<label class="chk"><input type="checkbox" name="mover" ${r&&r.link?'checked':''}> También mover este dinero del/al efectivo de la caja del día</label>`,
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
+      const rec=guardarRec('ahorro',id,{cajaId:d.cajaId,tipo:d.tipo,fecha:d.fecha,hora:d.hora,importe:imp,nota:d.nota.trim()});
+      const cn=nombre(S.cajasAhorro,d.cajaId);
+      if(d.mover){
+        const datos={tipo:rec.tipo==='entrada'?'retiro':'entrada',fecha:rec.fecha,hora:rec.hora,importe:rec.importe,nota:(rec.tipo==='entrada'?'Enviado a ahorro: ':'Recibido de ahorro: ')+cn,ahorroId:rec.id};
+        const ex=rec.link&&S.cajaMovs.find(x=>x.id===rec.link);
+        if(ex)Object.assign(ex,datos);else{const m=Object.assign({id:uid(),creado:new Date().toISOString()},datos);S.cajaMovs.push(m);rec.link=m.id;}
+      }else if(rec.link){S.cajaMovs=S.cajaMovs.filter(x=>x.id!==rec.link);rec.link=null;}
+      guardar();UI.fecha=d.fecha;render();});
+}
+function formSaldoInicial(){
+  const f=UI.fecha,i=saldoInicialDe(S,f);
+  modal('Saldo inicial de caja · '+fmtF(f),`<p class="mut">Efectivo con el que abres el día. ${i.manual?'':'Sugerido: conteo final del último día registrado.'}</p>`+inpMonto('saldo',i.valor,'Saldo inicial (MXN)'),
+    d=>{const n=parseMonto(d.saldo,true);if(n==null)return 'Escribe un número válido (puede ser 0).';
+      S.cajaDia[f]=Object.assign(S.cajaDia[f]||{},{saldoInicial:n});bit('Editó',`saldo inicial ${money(n)} del ${fmtF(f)}`);guardar();render();});
+}
+function formConteo(){
+  const f=UI.fecha,c=S.cajaDia[f];
+  modal('Conteo final de caja · '+fmtF(f),`<p class="mut">Efectivo esperado: <b>${money(calcDia(S,f).esperado)}</b>. Déjalo vacío para borrar el conteo.</p>`+inpMonto('contado',c&&c.contado,'Efectivo contado (MXN)'),
+    d=>{if(String(d.contado).trim()===''){if(S.cajaDia[f])delete S.cajaDia[f].contado;bit('Eliminó',`conteo del ${fmtF(f)}`);guardar();render();return;}
+      const n=parseMonto(d.contado,true);if(n==null)return 'Escribe un número válido (puede ser 0).';
+      S.cajaDia[f]=Object.assign(S.cajaDia[f]||{},{contado:n});bit('Registró',`conteo ${money(n)} del ${fmtF(f)}`);guardar();render();});
+}
+function formBolsaMov(id){
+  const r=id?S.bolsaMovs.find(x=>x.id===id):null;
+  modal(r?'Editar ajuste':'Ajuste de dinero retirado',
+    sel('Tipo','tipo',[['entrada','Entra dinero (sobrante, devolución)'],['salida','Sale dinero (gasto no registrado, depósito)']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota (opcional)','nota','text',r&&r.nota),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
+      guardarRec('bolsa',id,{tipo:d.tipo,fecha:d.fecha,hora:d.hora,importe:imp,nota:d.nota.trim()});UI.fecha=d.fecha;render();});
+}
+function formCierre(){
+  const f=UI.fecha,d=calcDia(S,f),c=d.cierre;
+  const fondoDef=c?c.fondo:(S.meta.fondo!=null?S.meta.fondo:0);
+  modal((c?'Editar cierre':'Cierre de caja')+' · '+fmtF(f),
+    `<div class="box" style="margin-bottom:12px">${ln('Dinero esperado en caja',money(d.esperado),'tot')}</div>`+
+    inpMonto('contado',c?c.contado:d.contado,'Efectivo contado (MXN)')+
+    inpMonto('fondo',fondoDef,'Se queda en caja para mañana (MXN)')+
+    `<div class="box" style="margin-bottom:12px"><div class="ln tot"><span>Nos llevamos</span><span id="cLlev">—</span></div><div class="ln"><span>Diferencia (contado − esperado)</span><span id="cDif">—</span></div></div>`+
+    inp('Nota del cierre (opcional)','nota','text',c&&c.nota),
+    x=>{const cont=parseMonto(x.contado,true);if(cont==null)return 'Escribe el efectivo contado (puede ser 0).';
+      const fondo=parseMonto(x.fondo,true);if(fondo==null)return 'Escribe cuánto se queda en caja (puede ser 0).';
+      if(fondo>cont)return 'No puedes dejar en caja más de lo que contaste. Revisa el conteo.';
+      S.cajaDia[f]=Object.assign(S.cajaDia[f]||{},{contado:cont,cierre:{hora:ahora(),esperado:d.esperado,contado:cont,diferencia:cont-d.esperado,fondo,retirado:cont-fondo,nota:x.nota.trim(),cerrado:new Date().toISOString()}});
+      S.meta.fondo=fondo;bit(c?'Editó':'Cerró',`caja del ${fmtF(f)}: contado ${money(cont)}, se queda ${money(fondo)}, se lleva ${money(cont-fondo)}`);guardar();render();},'Cerrar caja');
+  const calc=()=>{const co=parseMonto($('#mf [name=contado]').value,true),fo=parseMonto($('#mf [name=fondo]').value,true);
+    $('#cLlev').textContent=(co==null||fo==null||fo>co)?'—':money(co-fo);$('#cDif').innerHTML=co==null?'—':difHtml(co-d.esperado);};
+  ['contado','fondo'].forEach(n=>$('#mf [name='+n+']').addEventListener('input',calc));calc();
+}
+function reabrirCierre(){
+  const f=UI.fecha;if(!(S.cajaDia[f]&&S.cajaDia[f].cierre))return;
+  if(!confirm(`¿Reabrir la caja del ${fmtF(f)}?\nSe quitará el cierre y el dinero retirado de ese día dejará de contarse hasta que vuelvas a cerrar.`))return;
+  delete S.cajaDia[f].cierre;bit('Reabrió',`caja del ${fmtF(f)}`);guardar();render();
+}
+function textoCierre(f){
+  const d=calcDia(S,f),c=d.cierre;
+  return `CIERRE DE CAJA · Su Chef a tu mesa\nFecha: ${fmtF(f)}\n\nVenta total: ${money(d.ventaTotal)}\n  Efectivo: ${money(d.ventaEf)}\n  Tarjeta: ${money(d.ventaTj)}\n  Transferencia: ${money(d.ventaTr)}\nGastos y pagos: ${money(d.gastoTotal)}\n\nEfectivo esperado: ${money(c.esperado)}\nEfectivo contado: ${money(c.contado)}\nDiferencia: ${money(c.diferencia)}\n\nSe queda en caja: ${money(c.fondo)}\nNos llevamos: ${money(c.retirado)}\nDinero retirado disponible: ${money(calcBolsa(S,f))}`+(c.nota?`\nNota: ${c.nota}`:'');
+}
+function copiarCierre(f){
+  const t=textoCierre(f);
+  const ver=()=>modal('Resumen del cierre',`<textarea style="width:100%;height:280px;padding:8px;border-radius:10px;border:1px solid var(--linea)">${esc(t)}</textarea>`);
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(()=>alert('Resumen copiado. Pégalo en WhatsApp.')).catch(ver);else ver();
+}
+function formCat(tipo,id){
+  const T={proveedores:['proveedor',true],terceros:['tercero',true],categorias:['categoría',false],metodos:['método de pago',false],cajasAhorro:['caja de ahorro',false]}[tipo];
+  const r=id?S[tipo].find(x=>x.id===id):null;
+  let extra='';
+  if(T[1])extra=inp('Teléfono (opcional)','telefono','tel',r&&r.telefono)+inp('Notas (opcional)','notas','text',r&&r.notas);
+  if(tipo==='metodos')extra=sel('Tipo de método (define cómo se calcula)','tipo',[['efectivo','Efectivo (afecta caja)'],['tarjeta','Tarjeta (suma a la cuenta bancaria)'],['transferencia','Transferencia (suma a la misma cuenta bancaria)'],['otro','Otro']],r?r.tipo:'otro',r&&['ef','tj','tr'].includes(r.id)?'disabled':'')+
+    `<div class="mut" style="margin-bottom:6px">Comisión de la terminal (solo aplica a métodos de tipo tarjeta). Captura la que te cobra Mercado Pago según tu plan.</div>`+inp('Comisión (%)','comPct','text',r&&r.comisionPct!=null?r.comisionPct:'','inputmode="decimal" placeholder="0"')+inpMonto('comFijo',r&&r.comisionFijo?r.comisionFijo:null,'Cargo fijo por cobro (MXN, opcional)')+`<label class="chk"><input type="checkbox" name="comIva" ${r&&r.comisionIva?'checked':''}> La comisión lleva IVA (16%)</label>`;
+  modal((r?'Editar ':'Nuevo ')+T[0],inp('Nombre','nombre','text',r&&r.nombre)+extra+`<label class="chk"><input type="checkbox" name="activo" ${!r||r.activo?'checked':''}> Activo</label>`,
+    d=>{const n=d.nombre.trim();if(!n)return 'El nombre es obligatorio.';
+      if(S[tipo].some(x=>x.id!==id&&x.nombre.toLowerCase()===n.toLowerCase()))return 'Ya existe uno con ese nombre.';
+      const datos={nombre:n,activo:!!d.activo};
+      if(T[1]){datos.telefono=(d.telefono||'').trim();datos.notas=(d.notas||'').trim();}
+      if(tipo==='metodos'&&d.tipo)datos.tipo=d.tipo;
+      if(tipo==='metodos'){const pct=parsePct(d.comPct);if(pct==null)return 'El % de comisión no es válido (ejemplo: 3.5).';const fijo=String(d.comFijo||'').trim()===''?0:parseMonto(d.comFijo,true);if(fijo==null)return 'El cargo fijo no es válido (ejemplo: 3.00).';datos.comisionPct=pct;datos.comisionFijo=fijo;datos.comisionIva=!!d.comIva;}
+      if(r){Object.assign(r,datos);bit('Editó',`${T[0]} ${n}`);}else{S[tipo].push(Object.assign({id:uid()},datos,tipo==='metodos'&&!datos.tipo?{tipo:'otro'}:{}));bit('Creó',`${T[0]} ${n}`);}
+      guardar();render();});
+}
+function toggleCat(tipo,id){const r=S[tipo].find(x=>x.id===id);r.activo=!r.activo;bit(r.activo?'Activó':'Desactivó',r.nombre);guardar();render();}
+
+/* ================= COMPONENTES ================= */
+function dateBar(){
+  return `<div class="datebar"><button class="btn ghost" data-act="dia" data-n="-1" aria-label="Día anterior">‹</button><input type="date" value="${UI.fecha}" data-change="fecha"><button class="btn ghost" data-act="dia" data-n="1" aria-label="Día siguiente">›</button><button class="btn" data-act="hoy">Hoy</button><span class="mut">${fmtF(UI.fecha)}</span></div>`;
+}
+const acc=(k,id)=>`<button class="btn sm" data-act="edit" data-k="${k}" data-id="${id}">Editar</button><button class="btn sm del" data-act="del" data-k="${k}" data-id="${id}">Eliminar</button>`;
+const card=(l,v,c)=>`<div class="card ${c||''}"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+const ln=(l,v,c)=>`<div class="ln ${c||''}"><span>${l}</span><span>${v}</span></div>`;
+function destNombre(g){if(g.destTipo==='proveedor')return nombre(S.proveedores,g.destId);if(g.destTipo==='tercero')return nombre(S.terceros,g.destId);return g.benef||'';}
+const difHtml=dif=>dif==null?'<span class="mut">Sin conteo</span>':dif===0?'<span class="ok">✔ Cuadra</span>':dif<0?`<span class="neg">Faltante ${money(-dif)}</span>`:`<span class="pos">Sobrante ${money(dif)}</span>`;
+const ordenar=a=>a.slice().sort((x,y)=>(y.fecha+y.hora).localeCompare(x.fecha+x.hora));
+
+/* ================= VISTAS ================= */
+function vPanel(){
+  const f=UI.fecha,d=calcDia(S,f);
+  const hayDatos=S.ventas.length+S.gastos.length>0;
+  const lb=S.meta.lastBackup;const dias=lb?Math.floor((Date.now()-new Date(lb))/864e5):null;
+  const aviso=hayDatos&&(dias==null||dias>=7)?`<div class="warn">⚠️ ${dias==null?'Aún no has descargado un respaldo.':`Tu último respaldo fue hace ${dias} días.`} Tus datos viven solo en este dispositivo. <a href="#" data-act="ir" data-t="ajustes">Hacer respaldo</a></div>`:'';
+  const metodos=d.porMetodo.filter(m=>m.activo||m.total>0).map(m=>card('Venta · '+esc(m.nombre),money(m.total))).join('');
+  const dif=d.diferencia;
+  const difTxt=dif==null?'<span class="mut">Sin conteo</span>':dif===0?'<span class="ok">✔ Cuadra</span>':dif<0?`<span class="neg">Faltante ${money(-dif)}</span>`:`<span class="pos">Sobrante ${money(dif)}</span>`;
+  const ahorros=S.cajasAhorro.filter(c=>c.activo||saldoAhorro(S,c.id)!==0).map(c=>{
+    const mv=S.ahorroMovs.filter(m=>m.cajaId===c.id&&m.fecha===f);const e=sum(mv.filter(m=>m.tipo==='entrada').map(m=>m.importe)),s=sum(mv.filter(m=>m.tipo==='retiro').map(m=>m.importe));
+    return ln(esc(c.nombre)+`<span class="mut"> · hoy +${money(e)} / −${money(s)}</span>`,`<b>${money(saldoAhorro(S,c.id,f))}</b>`);}).join('');
+  return `${aviso}<div class="h"><h2>Panel del día</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Venta</button> <button class="btn" data-act="nuevo" data-k="gasto">+ Gasto</button> <button class="btn" data-act="nuevo" data-k="caja">+ Caja</button></div></div>${dateBar()}
+  <div class="grid">${card('Venta total del día',money(d.ventaTotal),'big')}${metodos}
+  ${card('Pagos a proveedores',money(d.pagosProv))}${card('Pagos a terceros',money(d.pagosTer))}${card('Total de gastos y pagos',money(d.gastoTotal))}</div>
+  <h3>Caja (efectivo físico)</h3><div class="box">
+   ${ln(`Saldo inicial ${d.saldoInicialManual?'':'<span class="mut">(sugerido)</span>'} <button class="btn sm" data-act="saldoini">Editar</button>`,money(d.saldoInicial))}
+   ${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}
+   ${ln('− Pagos en efectivo',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}
+   ${ln('Dinero esperado en caja',money(d.esperado),'tot')}
+   ${ln('Dinero contado en caja <button class="btn sm" data-act="conteo">Registrar conteo</button>',d.contado==null?'—':money(d.contado))}
+   ${ln('Diferencia',difTxt,'tot')}</div>
+  <p class="mut">Las ventas con tarjeta y transferencia no se suman al efectivo de caja; entran a la cuenta bancaria.</p>
+  <h3>Cierre y dinero retirado</h3><div class="box">
+   ${d.cierre?ln('Se quedó en caja (inicia mañana)',money(d.cierre.fondo))+ln('Nos llevamos',money(d.cierre.retirado))+ln('Cierre','<span class="ok">✔ Caja cerrada</span> <button class="btn sm" data-act="ir" data-t="caja">Ver</button>'):ln('Cierre del día','<button class="btn pri sm" data-act="cierre">Cerrar caja</button>')}
+   ${d.pagosEfRet?ln('Pagado hoy con dinero retirado',money(d.pagosEfRet)):''}
+   ${ln('Dinero retirado disponible','<b>'+money(calcBolsa(S,f))+'</b> <button class="btn sm" data-act="ir" data-t="bolsa">Ver</button>','tot')}</div>
+  ${d.cierreDesactualizado?'<div class="warn" style="margin-top:10px">⚠️ Cambió algo después del cierre de este día (esperado al cerrar '+money(d.cierre.esperado)+', ahora '+money(d.esperado)+'). Edita el cierre en Caja.</div>':''}
+  <h3>Cuenta bancaria (tarjeta + transferencia)</h3><div class="box">${ln('Ventas con tarjeta del día',money(d.ventaTj))}${ln('Ventas por transferencia del día',money(d.ventaTr))}${ln('Cobros brutos del día (tarjeta + transf.)',money(d.ventaTj+d.ventaTr))}${d.comisiones?ln('− Comisión de la terminal',money(d.comisiones)):''}${ln('Cobros netos a la cuenta',money(d.ventaTj+d.ventaTr-d.comisiones),'tot')}${ln('Pagos del día desde la cuenta (tarjeta/transf.)',money(d.pagosTj+d.pagosTr))}${ln('Saldo registrado a esta fecha',money(saldoTarjeta(S,f)),'tot')}</div>
+  <h3>Cajas de ahorro</h3><div class="box">${ahorros||'<div class="empty">Aún no hay cajas de ahorro. Créalas en Catálogos.</div>'}</div>`;
+}
+function vVentas(){
+  const l=ordenar(S.ventas.filter(x=>x.fecha===UI.fecha));const t=sum(l.map(x=>x.importe));
+  return `<div class="h"><h2>Ventas</h2><button class="btn pri" data-act="nuevo" data-k="venta">+ Nueva venta</button></div>${dateBar()}
+  <div class="grid">${card('Total del día',money(t),'big')}</div><h3>Registros</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b>${money(x.importe)} <span class="tag">${esc(nombre(S.metodos,x.metodo)||'—')}</span></b><span class="mut">${x.hora}${x.comision?' · comisión '+money(x.comision)+' · neto '+money(x.importe-x.comision):''}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('venta',x.id)}</div></div>`).join(''):'<div class="empty">No hay ventas en esta fecha.</div>'}</div>`;
+}
+function vGastos(){
+  const l=ordenar(S.gastos.filter(x=>x.fecha===UI.fecha));const t=sum(l.map(x=>x.importe));
+  return `<div class="h"><h2>Gastos y pagos</h2><button class="btn pri" data-act="nuevo" data-k="gasto">+ Nuevo gasto</button></div>${dateBar()}
+  <div class="grid">${card('Total del día',money(t),'big')}</div><h3>Registros</h3><div class="box">${l.length?l.map(g=>`<div class="item"><div class="m"><b>${money(g.importe)} · ${esc(nombre(S.categorias,g.categoria)||'—')} <span class="tag">${esc(nombre(S.metodos,g.metodo)||'—')}</span></b><span class="mut">${g.hora}${destNombre(g)?' · '+esc(destNombre(g)):''}${g.descripcion?' · '+esc(g.descripcion):''}${g.folio?' · Folio '+esc(g.folio):''}</span></div><div class="a">${acc('gasto',g.id)}</div></div>`).join(''):'<div class="empty">No hay gastos en esta fecha.</div>'}</div>`;
+}
+function vCaja(){
+  const f=UI.fecha,d=calcDia(S,f);const l=ordenar(S.cajaMovs.filter(x=>x.fecha===f));
+  const dif=d.diferencia;
+  return `<div class="h"><h2>Caja y efectivo</h2><button class="btn pri" data-act="nuevo" data-k="caja">+ Entrada / retiro</button></div>${dateBar()}
+  <div class="grid">${card('Efectivo esperado',money(d.esperado),'big')}${card('Contado',d.contado==null?'—':money(d.contado))}${card('Diferencia',dif==null?'—':`<span class="${dif<0?'neg':dif>0?'pos':'ok'}">${money(dif)}</span>`)}</div>
+  <div style="margin:12px 0"><button class="btn" data-act="saldoini">Saldo inicial</button> <button class="btn ver" data-act="conteo">Conteo final</button></div>
+  ${d.cierre?`<h3>Cierre del día</h3>${d.cierreDesactualizado?`<div class="warn">⚠️ Hubo cambios después del cierre: esperado al cerrar ${money(d.cierre.esperado)}, ahora ${money(d.esperado)}. Edita el cierre para actualizarlo.</div>`:''}<div class="box">${ln('Esperado al cerrar',money(d.cierre.esperado))}${ln('Contado',money(d.cierre.contado))}${ln('Diferencia',difHtml(d.cierre.diferencia))}${ln('Se queda en caja (mañana inicia con esto)',money(d.cierre.fondo),'tot')}${ln('Nos llevamos',money(d.cierre.retirado),'tot')}${d.cierre.nota?ln('Nota',esc(d.cierre.nota)):''}<div style="padding:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="cierre">Editar cierre</button><button class="btn sm ver" data-act="copiarCierre">Copiar resumen</button><button class="btn sm del" data-act="reabrir">Reabrir caja</button></div></div>`:`<div style="margin:0 0 12px"><button class="btn pri" data-act="cierre">🔒 Cerrar caja del día</button> <span class="mut">Define cuánto se queda y cuánto se lleva.</span></div>`}
+  <div class="box">${ln('Saldo inicial',money(d.saldoInicial))}${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${ln('− Pagos en efectivo (de la caja)',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${ln('= Efectivo esperado',money(d.esperado),'tot')}</div>
+  <h3>Entradas y retiros del día</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)} · ${x.tipo==='entrada'?'Entrada':'Retiro'}</b><span class="mut">${x.hora}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('caja',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos de efectivo en esta fecha.</div>'}</div>${d.pagosEfRet?`<p class="mut">Este día también se pagaron ${money(d.pagosEfRet)} con dinero retirado (no afectan la caja).</p>`:''}${histCierres()}`;
+}
+function vTarjeta(){
+  const f=UI.fecha,d=calcDia(S,f);
+  const movs=ordenar([].concat(
+    S.tarjetaMovs.filter(x=>x.fecha===f).map(x=>({k:'tarjeta',id:x.id,fecha:x.fecha,hora:x.hora,s:x.tipo==='entrada'?1:-1,imp:x.importe,txt:x.nota||'Movimiento manual',man:true})),
+    S.ventas.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'venta',id:x.id,fecha:x.fecha,hora:x.hora,s:1,imp:x.importe-(x.comision||0),txt:'Venta por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+(x.comision?' (bruta '+money(x.importe)+' − comisión '+money(x.comision)+')':'')+(x.nota?' · '+x.nota:'')})),
+    S.gastos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'gasto',id:x.id,fecha:x.fecha,hora:x.hora,s:-1,imp:x.importe,txt:'Pago por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+' · '+(destNombre(x)||nombre(S.categorias,x.categoria))}))));
+  return `<div class="h"><h2>Cuenta bancaria</h2><div><button class="btn pri" data-act="nuevo" data-k="tarjeta">+ Movimiento</button> <button class="btn" data-act="ajusteTj">Ajustar saldo</button></div></div>${dateBar()}
+  <div class="grid">${card('Saldo registrado',money(saldoTarjeta(S,f)),'big')}${card('Tarjeta del día (bruto)',money(d.ventaTj))}${card('Comisiones del día',money(d.comisiones))}${card('Transferencias del día',money(d.ventaTr))}${card('Pagos desde la cuenta',money(d.pagosTj+d.pagosTr))}</div>
+  <p class="mut">Las ventas y pagos por tarjeta y por transferencia van a la misma cuenta. Es el saldo calculado con lo que has capturado, no el saldo real del banco. Si no coincide, usa “Ajustar saldo”.</p>
+  <h3>Movimientos del día</h3><div class="box">${movs.length?movs.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${x.hora} · ${esc(x.txt)}</span></div><div class="a">${x.man?acc('tarjeta',x.id):`<span class="mut">desde ${x.k==='venta'?'Ventas':'Gastos'}</span>`}</div></div>`).join(''):'<div class="empty">Sin movimientos en esta fecha.</div>'}</div>`;
+}
+function vAhorro(){
+  const cajas=S.cajasAhorro;
+  if(!cajas.length)return `<div class="h"><h2>Cajas de ahorro</h2></div><div class="box"><div class="empty">Aún no tienes cajas de ahorro.<br><br><button class="btn pri" data-act="nuevoCat" data-t="cajasAhorro">+ Crear caja de ahorro</button></div></div>`;
+  if(!UI.ahorroSel||!cajas.some(c=>c.id===UI.ahorroSel))UI.ahorroSel=cajas[0].id;
+  const c=cajas.find(x=>x.id===UI.ahorroSel);const mv=ordenar(S.ahorroMovs.filter(x=>x.cajaId===c.id));
+  return `<div class="h"><h2>Cajas de ahorro</h2><button class="btn pri" data-act="nuevoAhorro" data-c="${c.id}">+ Entrada / retiro</button></div>
+  <div class="datebar">${cajas.map(x=>`<button class="btn ${x.id===c.id?'pri':''}" data-act="selAhorro" data-c="${x.id}">${esc(x.nombre)}${x.activo?'':' (inactiva)'}</button>`).join('')}</div>
+  <div class="grid">${card('Saldo de '+esc(c.nombre),money(saldoAhorro(S,c.id)),'big')}</div><h3>Historial</h3><div class="box">${mv.length?mv.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)}</b><span class="mut">${fmtF(x.fecha)} ${x.hora}${x.nota?' · '+esc(x.nota):''}${x.link?' · movido de/a caja':''}</span></div><div class="a">${acc('ahorro',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos todavía.</div>'}</div>`;
+}
+/* --- Historial unificado --- */
+function movimientos(){
+  const o=[];
+  S.ventas.forEach(x=>o.push({k:'venta',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Venta',s:1,imp:x.importe,cat:'',dest:'',met:x.metodo,nota:[x.nota,x.comision&&'Comisión '+money(x.comision)].filter(Boolean).join(' · ')}));
+  S.gastos.forEach(x=>o.push({k:'gasto',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Gasto',s:-1,imp:x.importe,cat:x.categoria,dest:destNombre(x),destKey:x.destTipo?(x.destTipo[0]+':'+x.destId):'',met:x.metodo,nota:[x.descripcion,x.folio&&'Folio '+x.folio].filter(Boolean).join(' · ')}));
+  S.cajaMovs.forEach(x=>o.push({k:'caja',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Caja · '+(x.tipo==='entrada'?'entrada':'retiro'),s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'ef',nota:x.nota||''}));
+  S.tarjetaMovs.forEach(x=>o.push({k:'tarjeta',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Cuenta bancaria · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'tj',nota:x.nota||''}));
+  S.ahorroMovs.forEach(x=>o.push({k:'ahorro',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Ahorro · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:nombre(S.cajasAhorro,x.cajaId),met:'',nota:x.nota||''}));
+  S.bolsaMovs.forEach(x=>o.push({k:'bolsa',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Dinero retirado · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'',nota:x.nota||''}));
+  return ordenar(o);
+}
+function histFiltrado(){
+  const h=UI.hist;
+  return movimientos().filter(m=>(!h.desde||m.fecha>=h.desde)&&(!h.hasta||m.fecha<=h.hasta)&&(!h.tipo||m.k===h.tipo)&&(!h.cat||m.cat===h.cat)&&(!h.dest||m.destKey===h.dest)&&(!h.metodo||m.met===h.metodo));
+}
+function vHistorial(){
+  const h=UI.hist,l=histFiltrado();
+  const dests=[['','Todos']].concat(S.proveedores.map(x=>['p:'+x.id,'Prov: '+x.nombre]),S.terceros.map(x=>['t:'+x.id,'Terc: '+x.nombre]));
+  const F=`<div class="filters">
+    <label class="f">Desde<input type="date" value="${h.desde}" data-change="h_desde"></label>
+    <label class="f">Hasta<input type="date" value="${h.hasta}" data-change="h_hasta"></label>
+    <label class="f">Tipo<select data-change="h_tipo">${[['','Todos'],['venta','Ventas'],['gasto','Gastos y pagos'],['caja','Caja'],['tarjeta','Cuenta bancaria'],['ahorro','Ahorro'],['bolsa','Dinero retirado']].map(o=>`<option value="${o[0]}" ${h.tipo===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
+    <label class="f">Categoría<select data-change="h_cat">${[['','Todas']].concat(S.categorias.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.cat===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
+    <label class="f">Proveedor/tercero<select data-change="h_dest">${dests.map(o=>`<option value="${o[0]}" ${h.dest===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
+    <label class="f">Método<select data-change="h_metodo">${[['','Todos']].concat(S.metodos.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.metodo===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label></div>`;
+  const ing=sum(l.filter(m=>m.k==='venta').map(m=>m.imp)),gas=sum(l.filter(m=>m.k==='gasto').map(m=>m.imp));
+  const rows=l.slice(0,500).map(m=>`<tr><td>${fmtF(m.fecha)}</td><td>${m.hora}</td><td>${esc(m.tipo)}</td><td>${esc(nombre(S.categorias,m.cat))}</td><td>${esc(m.dest)}</td><td>${esc(nombre(S.metodos,m.met))}</td><td>${esc(m.nota)}</td><td class="r ${m.s>0?'pos':'neg'}">${m.s>0?'+':'−'}${money(m.imp)}</td><td><button class="btn sm" data-act="edit" data-k="${m.k}" data-id="${m.id}">Editar</button></td></tr>`).join('');
+  const bit_=UI.bitacora?`<div class="tw" style="margin-top:8px"><table><tr><th>Fecha y hora</th><th>Acción</th><th>Detalle</th></tr>${S.log.slice(-150).reverse().map(x=>`<tr><td>${new Date(x.ts).toLocaleString('es-MX')}</td><td>${esc(x.accion)}</td><td>${esc(x.desc)}</td></tr>`).join('')||'<tr><td colspan="3">Sin cambios registrados.</td></tr>'}</table></div>`:'';
+  return `<div class="h"><h2>Historial</h2><div><button class="btn" data-act="limpiaHist">Limpiar filtros</button> <button class="btn ver" data-act="csvHist">Exportar CSV</button></div></div>${F}
+  <div class="grid">${card('Movimientos',l.length)}${card('Ventas (filtro)',money(ing))}${card('Gastos (filtro)',money(gas))}</div>
+  <div class="tw" style="margin-top:12px"><table><tr><th>Fecha</th><th>Hora</th><th>Tipo</th><th>Categoría</th><th>Destinatario</th><th>Método</th><th>Nota</th><th class="r">Importe</th><th></th></tr>${rows||'<tr><td colspan="9" class="empty">Sin resultados.</td></tr>'}</table></div>${l.length>500?'<p class="mut">Se muestran los 500 más recientes; el CSV incluye todos.</p>':''}
+  <h3>Bitácora de cambios</h3><button class="btn" data-act="togBit">${UI.bitacora?'Ocultar':'Ver'} bitácora (altas, ediciones y eliminaciones)</button>${bit_}`;
+}
+/* --- Reportes --- */
+function rangoRep(){const {modo,fecha}=UI.rep;return modo==='dia'?[fecha,fecha]:modo==='semana'?rangoSemana(fecha):rangoMes(fecha);}
+function datosRep(){
+  const [a,b]=rangoRep();const dias=[];for(let f=a;f<=b;f=addDays(f,1))dias.push(f);
+  const filas=dias.map(f=>({f,d:calcDia(S,f)}));
+  const gs=S.gastos.filter(x=>x.fecha>=a&&x.fecha<=b);
+  return {a,b,filas,
+    ventas:sum(filas.map(x=>x.d.ventaTotal)),comis:sum(filas.map(x=>x.d.comisiones)),gastos:sum(filas.map(x=>x.d.gastoTotal)),
+    prov:sum(filas.map(x=>x.d.pagosProv)),ter:sum(filas.map(x=>x.d.pagosTer)),
+    porMetodo:S.metodos.map(m=>({n:m.nombre,t:sum(S.ventas.filter(v=>v.fecha>=a&&v.fecha<=b&&v.metodo===m.id).map(v=>v.importe))})).filter(x=>x.t>0),
+    porCat:S.categorias.map(c=>({n:c.nombre,t:sum(gs.filter(g=>g.categoria===c.id).map(g=>g.importe))})).filter(x=>x.t>0)};
+}
+function vReportes(){
+  const R=datosRep();const m=UI.rep.modo;
+  return `<div class="h"><h2>Reportes</h2><button class="btn ver" data-act="csvRep">Exportar CSV</button></div>
+  <div class="datebar"><select data-change="r_modo" class="btn">${[['dia','Diario'],['semana','Semanal'],['mes','Mensual']].map(o=>`<option value="${o[0]}" ${m===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select><input type="date" value="${UI.rep.fecha}" data-change="r_fecha"><span class="mut">${fmtF(R.a)}${R.a!==R.b?' al '+fmtF(R.b):''}</span></div>
+  <div class="grid">${card('Ventas',money(R.ventas))}${card('Gastos y pagos',money(R.gastos))}${card('Comisiones de la terminal',money(R.comis))}${card('Ventas − gastos − comisiones',`<span class="${R.ventas-R.gastos-R.comis<0?'neg':'pos'}">${money(R.ventas-R.gastos-R.comis)}</span>`)}${card('Pagos prov. / terceros',money(R.prov)+' / '+money(R.ter))}</div>
+  <h3>Ventas por método</h3><div class="box">${R.porMetodo.map(x=>ln(esc(x.n),money(x.t))).join('')||'<div class="empty">Sin ventas en el periodo.</div>'}</div>
+  <h3>Gastos por categoría</h3><div class="box">${R.porCat.map(x=>ln(esc(x.n),money(x.t))).join('')||'<div class="empty">Sin gastos en el periodo.</div>'}</div>
+  <h3>Saldos al cierre del periodo (${fmtF(R.b)})</h3><div class="box">${ln('Saldo registrado de la cuenta bancaria (tarjeta + transferencia)',money(saldoTarjeta(S,R.b)))}${ln('Dinero retirado en cierres (periodo)',money(sum(R.filas.map(x=>x.d.cierre?x.d.cierre.retirado:0))))}${ln('Dinero retirado disponible',money(calcBolsa(S,R.b)))}${S.cajasAhorro.map(c=>ln('Ahorro · '+esc(c.nombre),money(saldoAhorro(S,c.id,R.b)))).join('')}${R.a===R.b?ln('Efectivo esperado en caja',money(R.filas[0].d.esperado)):''}</div>
+  ${R.a!==R.b?`<h3>Detalle por día</h3><div class="tw"><table><tr><th>Día</th><th class="r">Ventas</th><th class="r">Efectivo</th><th class="r">Tarjeta</th><th class="r">Transf.</th><th class="r">Gastos</th><th class="r">Comisiones</th></tr>${R.filas.map(x=>`<tr><td>${fmtF(x.f)}</td><td class="r">${money(x.d.ventaTotal)}</td><td class="r">${money(x.d.ventaEf)}</td><td class="r">${money(x.d.ventaTj)}</td><td class="r">${money(x.d.ventaTr)}</td><td class="r">${money(x.d.gastoTotal)}</td><td class="r">${money(x.d.comisiones)}</td></tr>`).join('')}</table></div>`:''}`;
+}
+/* --- Catálogos --- */
+function descComision(m){if(!(m.comisionPct||m.comisionFijo))return 'sin comisión configurada';return 'comisión '+[m.comisionPct?m.comisionPct+'%':'',m.comisionFijo?money(m.comisionFijo):''].filter(Boolean).join(' + ')+(m.comisionIva?' + IVA':'');}
+function bloqueCat(tipo,titulo,tel){
+  return `<h3>${titulo}</h3><div class="box">${S[tipo].length?S[tipo].map(x=>`<div class="item"><div class="m"><b>${esc(x.nombre)} ${x.activo?'':'<span class="tag off">Inactivo</span>'}${tipo==='metodos'?` <span class="tag">${x.tipo}</span>${x.tipo==='tarjeta'?` <span class="tag">${descComision(x)}</span>`:''}`:''}</b><span class="mut">${tel?esc([x.telefono,x.notas].filter(Boolean).join(' · ')):''}${tipo==='cajasAhorro'?'Saldo '+money(saldoAhorro(S,x.id)):''}</span></div><div class="a"><button class="btn sm" data-act="editCat" data-t="${tipo}" data-id="${x.id}">Editar</button><button class="btn sm" data-act="togCat" data-t="${tipo}" data-id="${x.id}">${x.activo?'Desactivar':'Activar'}</button></div></div>`).join(''):'<div class="empty">Sin registros.</div>'}<div style="padding:8px 0"><button class="btn pri sm" data-act="nuevoCat" data-t="${tipo}">+ Agregar</button></div></div>`;
+}
+function vCatalogos(){
+  return `<div class="h"><h2>Catálogos</h2></div><p class="mut">Los registros desactivados dejan de aparecer en los formularios nuevos, pero se conservan en el historial.</p>`+
+    bloqueCat('proveedores','Proveedores',true)+bloqueCat('terceros','Terceros / beneficiarios',true)+bloqueCat('categorias','Categorías de gastos')+bloqueCat('metodos','Métodos de pago')+bloqueCat('cajasAhorro','Cajas de ahorro');
+}
+function vAjustes(){
+  const lb=S.meta.lastBackup;
+  return `<div class="h"><h2>Ajustes y respaldo</h2></div>
+  ${bloqueNube()}
+  <h3>Respaldo y datos</h3><div class="box"><div class="item"><div class="m"><b>Respaldar datos</b><span class="mut">Descarga un archivo .json con toda tu información. Último respaldo: ${lb?new Date(lb).toLocaleString('es-MX'):'nunca'}.</span></div><div class="a"><button class="btn ver" data-act="respaldo">Descargar respaldo</button></div></div>
+  <div class="item"><div class="m"><b>Restaurar respaldo</b><span class="mut">Reemplaza los datos actuales con los del archivo.</span></div><div class="a"><label class="btn" style="cursor:pointer">Elegir archivo<input type="file" accept=".json,application/json" data-change="restaurar" hidden></label></div></div>
+  <div class="item"><div class="m"><b>Exportar todo a CSV (Excel)</b><span class="mut">Todos los movimientos, sin filtros.</span></div><div class="a"><button class="btn" data-act="csvTodo">Descargar CSV</button></div></div>
+  <div class="item"><div class="m"><b>Probar cálculos</b><span class="mut">Ejecuta casos de prueba de caja, ventas, gastos y ahorro con datos temporales (no toca tus datos).</span></div><div class="a"><button class="btn" data-act="pruebas">Ejecutar pruebas</button></div></div>
+  <div class="item"><div class="m"><b class="neg">Borrar todos los datos</b><span class="mut">Elimina todo de este dispositivo. Descarga un respaldo antes.</span></div><div class="a"><button class="btn del" data-act="reset">Borrar todo</button></div></div></div>
+  <p class="mut">Los datos se guardan en este navegador (localStorage). Si borras los datos del navegador o cambias de navegador/dispositivo, no los verás: por eso conviene respaldar seguido, aunque uses la nube.</p>`;
+}
+function histCierres(){
+  const ks=Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().reverse();
+  if(!ks.length)return '';
+  return `<h3>Historial de cierres</h3><div class="tw"><table><tr><th>Fecha</th><th class="r">Esperado</th><th class="r">Contado</th><th class="r">Diferencia</th><th class="r">Se quedó</th><th class="r">Se llevó</th></tr>${ks.slice(0,60).map(k=>{const c=S.cajaDia[k].cierre;return `<tr><td><a href="#" data-act="verCierre" data-f="${k}">${fmtF(k)}</a></td><td class="r">${money(c.esperado)}</td><td class="r">${money(c.contado)}</td><td class="r ${c.diferencia<0?'neg':''}">${money(c.diferencia)}</td><td class="r">${money(c.fondo)}</td><td class="r">${money(c.retirado)}</td></tr>`}).join('')}</table></div><div style="margin-top:8px"><button class="btn sm" data-act="csvCierres">Exportar cierres a CSV</button></div>`;
+}
+function vBolsa(){
+  const it=[];
+  Object.keys(S.cajaDia).forEach(k=>{const c=S.cajaDia[k].cierre;if(c)it.push({f:k,h:c.hora||'',s:1,imp:c.retirado,txt:'Retiro por cierre de caja',a:`<button class="btn sm" data-act="verCierre" data-f="${k}">Ver cierre</button>`});});
+  S.bolsaMovs.forEach(x=>it.push({f:x.fecha,h:x.hora,s:x.tipo==='entrada'?1:-1,imp:x.importe,txt:x.nota||'Ajuste manual',a:acc('bolsa',x.id)}));
+  S.gastos.filter(g=>g.origen==='retirado'&&tipoMetodo(S,g.metodo)==='efectivo').forEach(g=>it.push({f:g.fecha,h:g.hora,s:-1,imp:g.importe,txt:'Gasto · '+(nombre(S.categorias,g.categoria)||'')+(destNombre(g)?' · '+destNombre(g):''),a:`<button class="btn sm" data-act="edit" data-k="gasto" data-id="${g.id}">Editar</button>`}));
+  it.sort((a,b)=>(b.f+b.h).localeCompare(a.f+a.h));
+  const saldo=calcBolsa(S);
+  return `<div class="h"><h2>Dinero retirado</h2><button class="btn" data-act="nuevoBolsa">+ Ajuste manual</button></div>
+  <div class="grid">${card('Disponible (el que nos llevamos)',money(saldo),'big')}</div>
+  ${saldo<0?'<div class="warn" style="margin-top:10px">⚠️ El saldo es negativo: registraste más gastos con dinero retirado que lo que se retiró en los cierres. Revisa los cierres o agrega un ajuste.</div>':''}
+  <p class="mut">Es el efectivo que sacas de la caja al cerrar. Cuando compres algo con ese dinero, al registrar el gasto elige “Dinero retirado” y se descuenta de aquí, no de la caja.</p>
+  <h3>Movimientos</h3><div class="box">${it.length?it.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${fmtF(x.f)} ${x.h} · ${esc(x.txt)}</span></div><div class="a">${x.a}</div></div>`).join(''):'<div class="empty">Todavía no hay cierres de caja. Al cerrar la caja, lo que te llevas aparece aquí.</div>'}</div>`;
+}
+const VISTAS={bolsa:vBolsa,panel:vPanel,ventas:vVentas,gastos:vGastos,caja:vCaja,tarjeta:vTarjeta,ahorro:vAhorro,historial:vHistorial,reportes:vReportes,catalogos:vCatalogos,ajustes:vAjustes};
+function render(){renderNav();$('#view').innerHTML=VISTAS[UI.tab]();}
+
+/* ================= NUBE: sincronización en tiempo real (Firebase) ================= */
+const FB='https://www.gstatic.com/firebasejs/10.14.1/';
+const SYNC_KEY='suchef_sync_v1';
+function nubeBadge(){
+  return ({apagada:'',conectando:'☁️ Conectando…','sin-sesion':'☁️ Sin sesión',sincronizado:'☁️ Sincronizado',pendiente:'☁️ Sincronizando…','sin-red':'📴 Sin conexión',error:'⚠️ Error de nube'})[Nube.estado]||'';
+}
+function pintarNube(){
+  const el=$('#nubeTop');if(el)el.textContent=nubeBadge();
+  renderNav();
+  if(UI.tab==='ajustes')$('#view').innerHTML=vAjustes();
+}
+function errNube(e){
+  const c=(e&&e.code)||'';
+  const M={'auth/invalid-credential':'Correo o contraseña incorrectos.','auth/wrong-password':'Correo o contraseña incorrectos.','auth/user-not-found':'Correo o contraseña incorrectos.','auth/email-already-in-use':'Ese correo ya tiene cuenta. Usa “Iniciar sesión”.','auth/weak-password':'La contraseña debe tener al menos 6 caracteres.','auth/invalid-email':'El correo no es válido.','auth/missing-password':'Escribe tu contraseña.','auth/network-request-failed':'No hay internet. Inténtalo de nuevo con conexión.','auth/too-many-requests':'Demasiados intentos. Espera unos minutos.','auth/operation-not-allowed':'Falta habilitar “Correo y contraseña” en Firebase → Authentication.','permission-denied':'La nube rechazó el acceso. Revisa las reglas de seguridad de Firestore.','unauthenticated':'Inicia sesión para sincronizar.'};
+  return M[c]||('Error: '+(c||(e&&e.message)||'desconocido'));
+}
+const Nube={
+  estado:'apagada',user:null,msg:'',db:null,auth:null,fs:null,au:null,unsub:null,listo:false,timer:null,pend:0,
+  meta:(()=>{try{return JSON.parse(localStorage.getItem(SYNC_KEY))||null}catch(e){return null}})(),
+  configurada(){const c=window.FIREBASE_CONFIG;return !!(c&&c.apiKey&&c.projectId&&!/PEGA/i.test(c.apiKey));},
+  guardarMeta(){try{localStorage.setItem(SYNC_KEY,JSON.stringify(this.meta));}catch(e){}},
+  set(estado,msg){this.estado=estado;this.msg=msg||'';pintarNube();},
+  async iniciar(){
+    if(!this.configurada()){this.set('apagada');return;}
+    if(this.auth)return;
+    this.set('conectando');
+    try{
+      const [app,au,fs]=await Promise.all([import(FB+'firebase-app.js'),import(FB+'firebase-auth.js'),import(FB+'firebase-firestore.js')]);
+      this.au=au;this.fs=fs;
+      const a=app.initializeApp(window.FIREBASE_CONFIG);
+      this.auth=au.getAuth(a);
+      try{this.db=fs.initializeFirestore(a,{localCache:fs.persistentLocalCache({tabManager:fs.persistentMultipleTabManager()})});}
+      catch(e){this.db=fs.getFirestore(a);}
+      au.onAuthStateChanged(this.auth,u=>this.sesion(u));
+    }catch(e){
+      this.set('error','No se pudo cargar la conexión con la nube (¿sin internet?). Se reintentará al reconectar.');
+    }
+  },
+  sesion(u){
+    this.user=u;
+    if(!u){this.parar();this.set('sin-sesion');return;}
+    if(!this.meta||this.meta.uid!==u.uid){this.meta={uid:u.uid,map:{},maxU:0};}
+    this.guardarMeta();this.escuchar();
+  },
+  parar(){if(this.unsub){this.unsub();this.unsub=null;}this.listo=false;},
+  escuchar(){
+    if(!this.user||!this.db)return;
+    this.parar();this.set('conectando');
+    const fs=this.fs,since=Math.max(0,(this.meta.maxU||0)-600000);   // margen de 10 min por diferencias de reloj
+    const q=fs.query(fs.collection(this.db,'negocios',this.user.uid,'items'),fs.where('u','>',since));
+    this.unsub=fs.onSnapshot(q,{includeMetadataChanges:true},snap=>{
+      const docs=snap.docChanges().map(c=>c.doc.data());
+      if(docs.length){
+        const cambio=fusionarRemoto(S,this.meta,docs);this.guardarMeta();
+        if(cambio){guardarLocal();render();}
+      }
+      if(!this.listo){this.listo=true;this.empujar();}
+      this.set(!navigator.onLine?'sin-red':(this.pend>0||snap.metadata.hasPendingWrites)?'pendiente':'sincronizado');
+    },err=>this.set('error',errNube(err)));
+  },
+  cambio(){clearTimeout(this.timer);this.timer=setTimeout(()=>this.empujar(),500);},
+  empujar(){
+    if(!this.listo||!this.user||!this.db)return;
+    const ops=opsLocales(S,this.meta,Date.now());
+    if(!ops.length)return;
+    this.guardarMeta();
+    const fs=this.fs,uid=this.user.uid;
+    for(let i=0;i<ops.length;i+=400){
+      const b=fs.writeBatch(this.db);
+      ops.slice(i,i+400).forEach(o=>b.set(fs.doc(this.db,'negocios',uid,'items',o.k),{col:o.col,id:o.id,t:o.t,json:o.json,u:o.u,d:o.d}));
+      this.pend++;this.set('pendiente');
+      b.commit().then(()=>{this.pend--;if(this.pend===0)this.set(navigator.onLine?'sincronizado':'sin-red');}).catch(e=>{this.pend--;this.set('error',errNube(e));});
+    }
+  },
+  async entrar(email,pass,crear){
+    if(!this.au||!this.auth)return 'La conexión con la nube aún no está lista. Revisa tu internet e inténtalo de nuevo.';
+    try{
+      if(crear)await this.au.createUserWithEmailAndPassword(this.auth,email,pass);
+      else await this.au.signInWithEmailAndPassword(this.auth,email,pass);
+      return true;
+    }catch(e){return errNube(e);}
+  },
+  async salir(){if(this.au&&this.auth)await this.au.signOut(this.auth);},
+  async recuperar(email){try{await this.au.sendPasswordResetEmail(this.auth,email);return true;}catch(e){return errNube(e);}}
+};
+window.addEventListener('online',()=>{if(Nube.configurada()){if(!Nube.auth)Nube.iniciar();else if(Nube.user)Nube.set(Nube.pend>0?'pendiente':'sincronizado');}});
+window.addEventListener('offline',()=>{if(Nube.user)Nube.set('sin-red');});
+function formNube(crear){
+  modal(crear?'Crear cuenta de la nube':'Iniciar sesión en la nube',
+    (crear?'<p class="mut">Crea la cuenta <b>una sola vez</b> (en tu laptop). En el celular solo inicia sesión con el mismo correo y contraseña.</p>':'')+
+    inp('Correo','email','email','','autocomplete="email" autocapitalize="off"')+
+    inp('Contraseña (mínimo 6 caracteres)','pass','password','','autocomplete="'+(crear?'new-password':'current-password')+'"'),
+    d=>{const em=(d.email||'').trim();if(!em||!d.pass)return 'Escribe tu correo y tu contraseña.';return Nube.entrar(em,d.pass,crear);},
+    crear?'Crear cuenta':'Iniciar sesión');
+}
+function bloqueNube(){
+  const e=Nube.estado;let cuerpo='';
+  if(e==='apagada')cuerpo=`<div class="item"><div class="m"><b>Nube sin configurar</b><span class="mut">La app funciona normal, solo en este dispositivo. Para compartir datos entre celular y laptop falta pegar los datos de Firebase en el archivo <b>nube-config.js</b> (sigue la guía GUIA-NUBE.txt).</span></div></div>`;
+  else if(e==='error')cuerpo=`<div class="item"><div class="m"><b class="neg">Problema con la nube</b><span class="mut">${esc(Nube.msg)}</span></div><div class="a"><button class="btn" data-act="recargar">Reintentar</button>${Nube.user?'<button class="btn" data-act="nubeSync">Sincronizar</button>':''}</div></div>`;
+  else if(!Nube.user)cuerpo=`<div class="item"><div class="m"><b>${e==='conectando'?'Conectando…':'Inicia sesión para sincronizar'}</b><span class="mut">Usa el mismo correo y contraseña en tu celular y en tu laptop.</span></div><div class="a"><button class="btn pri" data-act="nubeEntrar">Iniciar sesión</button><button class="btn" data-act="nubeCrear">Crear cuenta (primera vez)</button></div></div>`;
+  else cuerpo=`<div class="item"><div class="m"><b>Conectado: ${esc(Nube.user.email||'')}</b><span class="mut">Estado: ${({conectando:'conectando…',sincronizado:'todo sincronizado ✔',pendiente:'enviando cambios…','sin-red':'sin conexión (los cambios se envían al reconectar)'})[e]||e}. Los cambios se ven en tus otros dispositivos en segundos.</span></div><div class="a"><button class="btn" data-act="nubeSync">Sincronizar ahora</button></div></div>
+  <div class="item"><div class="m"><b>Volver a descargar todo</b><span class="mut">Úsalo si algo no se ve igual en este dispositivo.</span></div><div class="a"><button class="btn" data-act="nubeTodo">Descargar todo</button></div></div>
+  <div class="item"><div class="m"><b>Cerrar sesión</b><span class="mut">Tus datos se quedan en este dispositivo, pero dejan de sincronizarse.</span></div><div class="a"><button class="btn del" data-act="nubeSalir">Cerrar sesión</button></div></div>`;
+  return `<h3>Sincronización en la nube</h3><div class="box">${cuerpo}</div>`;
+}
+/* ================= EXPORTAR / RESPALDAR ================= */
+function descargar(nombreArch,contenido,tipo){
+  const b=new Blob([contenido],{type:tipo});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=nombreArch;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),2000);
+}
+function csv(filas){return '\ufeff'+filas.map(r=>r.map(c=>{c=String(c==null?'':c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c}).join(',')).join('\r\n');}
+function filasMov(l){return [['Fecha','Hora','Tipo','Categoría','Destinatario','Método','Nota','Importe (MXN, + entra / − sale)']].concat(l.map(m=>[fmtF(m.fecha),m.hora,m.tipo,nombre(S.categorias,m.cat),m.dest,nombre(S.metodos,m.met),m.nota,(m.s<0?'-':'')+decimal(m.imp)]));}
+const ACT={
+  ir:e=>ir(e.t),mas:()=>modal('Más secciones',`<div class="menu">${TABS.filter(t=>!BOTTOM.includes(t[0])).map(t=>`<button class="btn" data-act="ir" data-t="${t[0]}">${t[1]} ${t[2]}</button>`).join('')}</div>`),
+  cerrar,cierre:formCierre,reabrir:reabrirCierre,copiarCierre:()=>copiarCierre(UI.fecha),nuevoBolsa:()=>formBolsaMov(),
+  verCierre:e=>{UI.fecha=e.f;UI.tab='caja';render();window.scrollTo(0,0);},
+  csvCierres:()=>{const rows=[['Fecha','Esperado','Contado','Diferencia','Se quedó en caja','Se llevó','Nota']].concat(Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().map(k=>{const c=S.cajaDia[k].cierre;return [fmtF(k),decimal(c.esperado),decimal(c.contado),(c.diferencia<0?'-':'')+decimal(Math.abs(c.diferencia)),decimal(c.fondo),decimal(c.retirado),c.nota||'']}));descargar('cierres-suchef-'+hoy()+'.csv',csv(rows),'text/csv;charset=utf-8');},
+  dia:e=>{UI.fecha=addDays(UI.fecha,+e.n);render();},hoy:()=>{UI.fecha=hoy();render();},
+  nuevo:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov})[e.k](),
+  edit:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov,ahorro:formAhorroMov,bolsa:formBolsaMov})[e.k](e.id),
+  del:e=>borrarRec(e.k,e.id),saldoini:formSaldoInicial,conteo:formConteo,ajusteTj:formAjusteTarjeta,
+  nuevoAhorro:e=>formAhorroMov(null,e.c),selAhorro:e=>{UI.ahorroSel=e.c;render();},
+  nuevoCat:e=>formCat(e.t),editCat:e=>formCat(e.t,e.id),togCat:e=>toggleCat(e.t,e.id),
+  limpiaHist:()=>{UI.hist={desde:'',hasta:'',tipo:'',cat:'',dest:'',metodo:''};render();},togBit:()=>{UI.bitacora=!UI.bitacora;render();},
+  csvHist:()=>descargar('historial-suchef-'+hoy()+'.csv',csv(filasMov(histFiltrado())),'text/csv;charset=utf-8'),
+  csvTodo:()=>descargar('movimientos-suchef-'+hoy()+'.csv',csv(filasMov(movimientos())),'text/csv;charset=utf-8'),
+  csvRep:()=>{const R=datosRep();const rows=[['Día','Ventas','Efectivo','Tarjeta','Transferencia','Gastos y pagos','Pagos proveedores','Pagos terceros','Comisiones terminal']].concat(R.filas.map(x=>[fmtF(x.f),decimal(x.d.ventaTotal),decimal(x.d.ventaEf),decimal(x.d.ventaTj),decimal(x.d.ventaTr),decimal(x.d.gastoTotal),decimal(x.d.pagosProv),decimal(x.d.pagosTer),decimal(x.d.comisiones)]),[['TOTAL',decimal(R.ventas),'','','',decimal(R.gastos),decimal(R.prov),decimal(R.ter),decimal(R.comis)]]);descargar(`reporte-suchef-${R.a}_${R.b}.csv`,csv(rows),'text/csv;charset=utf-8');},
+  respaldo:()=>{S.meta.lastBackup=new Date().toISOString();guardar();descargar('respaldo-suchef-'+hoy()+'.json',JSON.stringify(S,null,1),'application/json');render();},
+  pruebas:()=>{const R=correrPruebas();const mal=R.filter(x=>!x.ok).length;modal(mal?`❌ ${mal} prueba(s) fallaron`:`✔ ${R.length} pruebas correctas`,R.map(x=>`<div class="ln"><span>${x.ok?'✔':'❌'} ${esc(x.desc)}</span></div>`).join(''));},
+  nubeEntrar:()=>formNube(false),nubeCrear:()=>formNube(true),recargar:()=>location.reload(),
+  nubeSync:()=>{Nube.escuchar();},
+  nubeTodo:()=>{if(!confirm('Se volverán a descargar todos los datos de la nube. ¿Continuar?'))return;Nube.meta.maxU=0;Nube.guardarMeta();Nube.escuchar();},
+  nubeSalir:async()=>{if(!confirm('¿Cerrar sesión? Dejarás de sincronizar hasta volver a iniciar sesión.'))return;await Nube.salir();},
+  reset:()=>{if(!confirm('¿Borrar TODOS los datos de este dispositivo?'+(Nube.user?'\n\n⚠️ Tienes la nube conectada: también se borrarán de la nube y de tus otros dispositivos.':'')))return;if(!confirm('Última confirmación: no se podrá deshacer. ¿Borrar todo?'))return;S=estadoBase();guardar();render();}
+};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;if(b.tagName==='A')e.preventDefault();const f=ACT[b.dataset.act];if(f)f(b.dataset);});
+document.addEventListener('change',e=>{
+  const t=e.target.closest('[data-change]');if(!t)return;const k=t.dataset.change,v=t.value;
+  if(k==='fecha'){if(v)UI.fecha=v;}
+  else if(k.startsWith('h_'))UI.hist[k.slice(2)]=v;
+  else if(k==='r_modo')UI.rep.modo=v;
+  else if(k==='r_fecha'){if(v)UI.rep.fecha=v;}
+  else if(k==='restaurar'){const file=t.files[0];if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const o=JSON.parse(rd.result);if(!Array.isArray(o.ventas)||!Array.isArray(o.gastos)||!o.metodos)throw 0;if(!confirm('Esto reemplazará todos los datos actuales por los del respaldo. ¿Continuar?'+(Nube.user?'\n\n⚠️ Tienes la nube conectada: lo que no esté en el respaldo también se quitará de tus otros dispositivos.':'')))return;S=Object.assign(estadoBase(),o);guardar();render();alert('Respaldo restaurado.');}catch(x){alert('El archivo no parece un respaldo válido de esta aplicación.');}};rd.readAsText(file);return;}
+  render();
+});
+render();
+Nube.iniciar();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
+</script>
+</body>
+</html>
