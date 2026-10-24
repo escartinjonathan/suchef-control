@@ -159,6 +159,7 @@ function estadoBase(){
     metodos:[{id:'ef',nombre:'Efectivo',tipo:'efectivo',activo:true},{id:'tj',nombre:'Tarjeta',tipo:'tarjeta',activo:true},{id:'tr',nombre:'Transferencia',tipo:'transferencia',activo:true}],
     categorias:['Proveedores','Terceros','Nómina','Renta','Servicios','Insumos','Mantenimiento','Otros'].map((n,i)=>({id:'c'+i,nombre:n,activo:true})),
     proveedores:[],terceros:[],cajasAhorro:[],
+    clientes:[],creditos:[],abonos:[],   // cuentas por cobrar: clientes, ventas a crédito y sus pagos
     ventas:[],gastos:[],cajaMovs:[],tarjetaMovs:[],ahorroMovs:[],bolsaMovs:[],
     cajaDia:{},          // { 'YYYY-MM-DD': {saldoInicial, contado} }
     log:[],meta:{lastBackup:null}
@@ -182,8 +183,12 @@ function calcDia(S,f){
   const porMetodo=S.metodos.map(m=>({id:m.id,nombre:m.nombre,activo:m.activo,tipo:m.tipo,total:sum(ventas.filter(v=>v.metodo===m.id).map(v=>v.importe))}));
   const vTipo=t=>sum(ventas.filter(v=>tipoMetodo(S,v.metodo)===t).map(v=>v.importe));
   const gTipo=t=>sum(gastos.filter(g=>tipoMetodo(S,g.metodo)===t).map(g=>g.importe));
-  const ventaTotal=sum(ventas.map(v=>v.importe));
-  const comisiones=sum(ventas.map(v=>v.comision||0));
+  const credD=S.creditos.filter(c=>c.fecha===f),abD=S.abonos.filter(a=>a.fecha===f);
+  const ventaCredito=sum(credD.map(c=>c.importe));                       // vendido a crédito (aún no se cobra)
+  const cobrosEf=sum(abD.filter(a=>tipoMetodo(S,a.metodo)==='efectivo').map(a=>a.importe));
+  const cobrosBanco=sum(abD.filter(a=>esBanco(S,a.metodo)).map(a=>a.importe));
+  const ventaTotal=sum(ventas.map(v=>v.importe))+ventaCredito;
+  const comisiones=sum(ventas.map(v=>v.comision||0))+sum(abD.map(a=>a.comision||0));
   const ventaEf=vTipo('efectivo'),ventaTj=vTipo('tarjeta'),ventaTr=vTipo('transferencia');
   const pagosEfTot=gTipo('efectivo'),pagosTj=gTipo('tarjeta'),pagosTr=gTipo('transferencia');
   // Pagos en efectivo hechos con el "dinero retirado" NO descuentan la caja del día.
@@ -195,10 +200,10 @@ function calcDia(S,f){
   const entradas=sum(cm.filter(x=>x.tipo==='entrada').map(x=>x.importe));
   const retiros=sum(cm.filter(x=>x.tipo==='retiro').map(x=>x.importe));
   const ini=saldoInicialDe(S,f);
-  const esperado=ini.valor+ventaEf+entradas-pagosEf-retiros;
+  const esperado=ini.valor+ventaEf+cobrosEf+entradas-pagosEf-retiros;
   const contado=(S.cajaDia[f]&&S.cajaDia[f].contado!=null)?S.cajaDia[f].contado:null;
   const cierre=(S.cajaDia[f]&&S.cajaDia[f].cierre)||null;
-  return {ventaTotal,comisiones,ventaEf,ventaTj,ventaTr,porMetodo,pagosEf,pagosEfRet,pagosTj,pagosTr,pagosProv,pagosTer,gastoTotal,
+  return {ventaTotal,comisiones,ventaCredito,cobrosEf,cobrosBanco,cobrosTotal:sum(abD.map(a=>a.importe)),ventaEf,ventaTj,ventaTr,porMetodo,pagosEf,pagosEfRet,pagosTj,pagosTr,pagosProv,pagosTer,gastoTotal,
           entradas,retiros,saldoInicial:ini.valor,saldoInicialManual:ini.manual,esperado,contado,
           diferencia:contado==null?null:contado-esperado,cierre,cierreDesactualizado:!!cierre&&cierre.esperado!==esperado};
 }
@@ -222,7 +227,7 @@ const esBanco=(S,id)=>{const t=tipoMetodo(S,id);return t==='tarjeta'||t==='trans
 /* Saldo registrado de la cuenta bancaria (acumulado hasta 'hasta', inclusive). Solo lo que se captura. */
 function saldoTarjeta(S,hasta){
   hasta=hasta||'9999-12-31';
-  const v=sum(S.ventas.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe-(x.comision||0)));   // neto de comisión
+  const v=sum(S.ventas.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe-(x.comision||0)))+sum(S.abonos.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe-(x.comision||0)));   // neto de comisión (incluye cobros de créditos)
   const g=sum(S.gastos.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe));
   const e=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='entrada').map(x=>x.importe));
   const s=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='salida').map(x=>x.importe));
@@ -246,6 +251,22 @@ function bolsaSobrante(S,f){
   const c=S.cajaDia[f]&&S.cajaDia[f].cierre;
   return calcBolsa(S,f)-(c?c.retirado:0);
 }
+/* ===== Cuentas por cobrar (ventas a crédito) ===== */
+function diasEntre(a,b){const [y1,m1,d1]=a.split('-').map(Number),[y2,m2,d2]=b.split('-').map(Number);return Math.round((Date.UTC(y2,m2-1,d2)-Date.UTC(y1,m1-1,d1))/864e5);}
+function saldoCredito(S,c){return c.importe-sum(S.abonos.filter(a=>a.creditoId===c.id).map(a=>a.importe));}
+function estadoCredito(S,c,hoy){
+  if(saldoCredito(S,c)<=0)return 'pagado';
+  if(c.vence<hoy)return 'vencido';
+  if(c.vence<=addDays(hoy,1))return 'por-vencer';     // vence hoy o mañana
+  return 'vigente';
+}
+function resumenCxc(S,hoy){
+  let total=0,vencido=0,nVenc=0,porVencer=0,nPV=0;const cl=new Set();
+  S.creditos.forEach(c=>{const s=saldoCredito(S,c);if(s<=0)return;total+=s;cl.add(c.clienteId);const e=estadoCredito(S,c,hoy);if(e==='vencido'){vencido+=s;nVenc++;}else if(e==='por-vencer'){porVencer+=s;nPV++;}});
+  return {total,vencido,nVenc,porVencer,nPV,clientes:cl.size};
+}
+function saldoCliente(S,id){return sum(S.creditos.filter(c=>c.clienteId===id).map(c=>saldoCredito(S,c)));}
+function saldoPorCobrar(S,hasta){hasta=hasta||'9999-12-31';return sum(S.creditos.filter(c=>c.fecha<=hasta).map(c=>c.importe))-sum(S.abonos.filter(a=>a.fecha<=hasta).map(a=>a.importe));}
 /* ===== Sincronización en la nube: lógica pura (se prueba sin internet) =====
    Cada registro (venta, gasto, proveedor, etc.) es un documento. Gana la última edición (u = hora).
    meta.map guarda, por registro, lo último que se sincronizó: {h: contenido, u: hora, d: borrado}. */
@@ -378,6 +399,47 @@ function correrPruebas(){
   S3.cajaDia[h2]={contado:140000,cierre:{esperado:140000,contado:140000,diferencia:0,fondo:100000,retirado:40000}};
   t('Día 2: el sobrante no cambia al cerrar',bolsaSobrante(S3,h2),38000);
   t('Día 2: total retirado = sobrante + lo de hoy',calcBolsa(S3,h2),78000);
+  /* --- Ahorro tomado de la venta diaria --- */
+  const Z=estadoBase(),z1='2026-07-01',z2='2026-07-02';
+  Z.cajasAhorro.push({id:'a1',nombre:'Ahorro',activo:true});
+  Z.cajaDia[z1]={contado:150000,cierre:{esperado:150000,contado:150000,diferencia:0,fondo:100000,ahorro:10000,ahorroCaja:'a1',retirado:40000}};
+  Z.ahorroMovs.push(mk({cajaId:'a1',tipo:'entrada',fecha:z1,importe:10000,origen:'cierre',cierre:z1}));
+  t('Cierre con ahorro: retirado = contado - se queda - ahorro',calcBolsa(Z,z1),40000);
+  t('Cierre con ahorro: entra a la caja de ahorro',saldoAhorro(Z,'a1'),10000);
+  t('Cierre con ahorro: el día siguiente inicia con lo que se quedó',calcDia(Z,z2).saldoInicial,100000);
+  Z.cajaMovs.push(mk({fecha:z2,tipo:'retiro',importe:30000,ahorroId:'x'}));
+  t('Ahorro tomado de la caja baja el efectivo esperado',calcDia(Z,z2).esperado,70000);
+  Z.bolsaMovs.push(mk({fecha:z2,tipo:'salida',importe:5000,ahorroId:'y'}));
+  t('Ahorro tomado del dinero retirado lo baja',calcBolsa(Z,z2),35000);
+  t('Ahorro del dinero retirado no toca la caja',calcDia(Z,z2).esperado,70000);
+  /* --- Ventas a crédito / cuentas por cobrar --- */
+  const Q=estadoBase(),q1='2026-06-10';
+  Q.clientes.push({id:'cl1',nombre:'Oficina Centro',activo:true,diasCredito:3});
+  Q.cajaDia[q1]={saldoInicial:100000};
+  Q.ventas.push(mk({fecha:q1,importe:20000,metodo:'ef'}));
+  Q.creditos.push(mk({id:'cr1',fecha:q1,clienteId:'cl1',importe:50000,dias:3,vence:'2026-06-13'}));
+  t('Crédito: la venta total del día incluye lo vendido a crédito',calcDia(Q,q1).ventaTotal,70000);
+  t('Crédito: no entra a la caja',calcDia(Q,q1).esperado,120000);
+  t('Crédito: no entra a la cuenta bancaria',saldoTarjeta(Q),0);
+  t('Crédito: saldo inicial por cobrar',saldoCredito(Q,Q.creditos[0]),50000);
+  t('Crédito: vigente',estadoCredito(Q,Q.creditos[0],'2026-06-11'),'vigente');
+  t('Crédito: vence mañana',estadoCredito(Q,Q.creditos[0],'2026-06-12'),'por-vencer');
+  t('Crédito: vencido',estadoCredito(Q,Q.creditos[0],'2026-06-14'),'vencido');
+  t('Días entre fechas',diasEntre('2026-06-13','2026-06-16'),3);
+  Q.abonos.push(mk({creditoId:'cr1',fecha:'2026-06-12',importe:20000,metodo:'ef',comision:0}));
+  t('Pago en efectivo entra a la caja del día del pago',calcDia(Q,'2026-06-12').esperado,20000+calcDia(Q,'2026-06-12').saldoInicial);
+  t('Pago parcial: baja el saldo',saldoCredito(Q,Q.creditos[0]),30000);
+  t('Pago en efectivo no se cuenta como venta nueva',calcDia(Q,'2026-06-12').ventaTotal,0);
+  Q.abonos.push(mk({creditoId:'cr1',fecha:'2026-06-13',importe:30000,metodo:'tj',comision:1050}));
+  t('Pago con tarjeta entra a la cuenta, neto de comisión',saldoTarjeta(Q),28950);
+  t('Pago con tarjeta: comisiones del día',calcDia(Q,'2026-06-13').comisiones,1050);
+  t('Crédito liquidado',estadoCredito(Q,Q.creditos[0],'2026-06-13'),'pagado');
+  t('Resumen: ya no hay por cobrar',resumenCxc(Q,'2026-06-13').total,0);
+  t('Por cobrar al día de la venta',saldoPorCobrar(Q,q1),50000);
+  t('Por cobrar tras el último pago',saldoPorCobrar(Q,'2026-06-13'),0);
+  Q.creditos.push(mk({id:'cr2',fecha:'2026-06-13',clienteId:'cl1',importe:8000,dias:2,vence:'2026-06-15'}));
+  t('Resumen: vencido de un crédito pendiente',resumenCxc(Q,'2026-06-16').vencido,8000);
+  t('Saldo del cliente',saldoCliente(Q,'cl1'),8000);
   /* --- Sincronización entre dispositivos (simulada) --- */
   const nube=new Map(),subir=ops=>ops.forEach(o=>nube.set(o.k,{col:o.col,id:o.id,t:o.t,json:o.json,u:o.u,d:o.d})),bajar=()=>[...nube.values()];
   const A=estadoBase(),mA={map:{},maxU:0},Bd=estadoBase(),mB={map:{},maxU:0};
@@ -446,7 +508,7 @@ function guardar(){guardarLocal();if(typeof Nube!=='undefined'&&Nube.user)Nube.c
 function bit(accion,desc){S.log.push({ts:new Date().toISOString(),accion,desc});if(S.log.length>1000)S.log=S.log.slice(-1000);}
 
 /* ================= NAVEGACIÓN ================= */
-const TABS=[['panel','🏠','Panel del día'],['ventas','🧾','Ventas'],['gastos','💸','Gastos y pagos'],['caja','💵','Caja y efectivo'],['bolsa','👜','Dinero retirado'],['tarjeta','💳','Cuenta bancaria'],['ahorro','🐷','Cajas de ahorro'],['historial','📋','Historial'],['reportes','📊','Reportes'],['catalogos','🗂️','Catálogos'],['ajustes','⚙️','Ajustes y respaldo']];
+const TABS=[['panel','🏠','Panel del día'],['ventas','🧾','Ventas'],['cobrar','🤝','Cuentas por cobrar'],['gastos','💸','Gastos y pagos'],['caja','💵','Caja y efectivo'],['bolsa','👜','Dinero retirado'],['tarjeta','💳','Cuenta bancaria'],['ahorro','🐷','Cajas de ahorro'],['historial','📋','Historial'],['reportes','📊','Reportes'],['catalogos','🗂️','Catálogos'],['ajustes','⚙️','Ajustes y respaldo']];
 const BOTTOM=['panel','ventas','gastos','caja'];
 function ir(t){UI.tab=t;cerrar();render();window.scrollTo(0,0);}
 function renderNav(){
@@ -477,8 +539,8 @@ const fechaHora=(r)=>`<div class="row2">${inp('Fecha','fecha','date',r?r.fecha:U
 function valFH(d){if(!d.fecha||!d.hora)return 'Falta la fecha o la hora.';return null;}
 
 /* ================= GUARDAR / BORRAR ================= */
-const COLL={venta:'ventas',gasto:'gastos',caja:'cajaMovs',tarjeta:'tarjetaMovs',ahorro:'ahorroMovs',bolsa:'bolsaMovs'};
-const KIND_TXT={venta:'venta',gasto:'gasto',caja:'movimiento de caja',tarjeta:'movimiento de la cuenta bancaria',ahorro:'movimiento de ahorro',bolsa:'ajuste de dinero retirado'};
+const COLL={venta:'ventas',gasto:'gastos',caja:'cajaMovs',tarjeta:'tarjetaMovs',ahorro:'ahorroMovs',bolsa:'bolsaMovs',credito:'creditos',abono:'abonos'};
+const KIND_TXT={venta:'venta',gasto:'gasto',caja:'movimiento de caja',tarjeta:'movimiento de la cuenta bancaria',ahorro:'movimiento de ahorro',bolsa:'ajuste de dinero retirado',credito:'venta a crédito',abono:'pago de crédito'};
 function guardarRec(kind,id,datos){
   const arr=S[COLL[kind]];let r;
   if(id){r=arr.find(x=>x.id===id);Object.assign(r,datos,{editado:new Date().toISOString()});bit('Editó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);}
@@ -487,9 +549,11 @@ function guardarRec(kind,id,datos){
 }
 function borrarRec(kind,id){
   const arr=S[COLL[kind]];const r=arr.find(x=>x.id===id);if(!r)return;
-  if(kind==='caja'&&r.ahorroId){alert('Este movimiento viene de una caja de ahorro. Edítalo o bórralo desde la sección Cajas de ahorro.');return;}
+  if((kind==='caja'||kind==='bolsa')&&r.ahorroId){alert('Este movimiento viene de una caja de ahorro. Edítalo o bórralo desde la sección Cajas de ahorro.');return;}
+  if(kind==='ahorro'&&r.cierre){alert('Este apartado viene de un cierre de caja. Edita el cierre de ese día (o reabre la caja).');return;}
   if(!confirm(`¿Eliminar este ${KIND_TXT[kind]} de ${money(r.importe)} (${fmtF(r.fecha)})?\nEsta acción no se puede deshacer.`))return;
-  if(kind==='ahorro'&&r.link)S.cajaMovs=S.cajaMovs.filter(x=>x.id!==r.link);
+  if(kind==='ahorro'&&r.link){S.cajaMovs=S.cajaMovs.filter(x=>x.id!==r.link);S.bolsaMovs=S.bolsaMovs.filter(x=>x.id!==r.link);}
+  if(kind==='credito')S.abonos=S.abonos.filter(a=>a.creditoId!==id);   // sus pagos también
   S[COLL[kind]]=arr.filter(x=>x.id!==id);
   bit('Eliminó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);
   guardar();render();
@@ -571,22 +635,40 @@ function formAjusteTarjeta(){
     d=>{const n=parseMonto(d.saldo,true);if(n==null)return 'Escribe un número válido (puede ser 0).';const dif=n-actual;if(dif===0)return 'El saldo ya coincide, no hay nada que ajustar.';
       guardarRec('tarjeta',null,{tipo:dif>0?'entrada':'salida',fecha:hoy(),hora:ahora(),importe:Math.abs(dif),nota:'Ajuste manual de saldo'});render();},'Ajustar');
 }
+/* El dinero que entra a ahorro sale de la venta diaria (caja) o del dinero retirado; al sacar de ahorro regresa al mismo lugar. */
+function enlazarAhorro(rec,origen,cn){
+  const donde=m=>S.cajaMovs.some(x=>x.id===m)?'caja':(S.bolsaMovs.some(x=>x.id===m)?'retirado':null);
+  const actual=rec.link?donde(rec.link):null;
+  if(actual&&actual!==origen){if(actual==='caja')S.cajaMovs=S.cajaMovs.filter(x=>x.id!==rec.link);else S.bolsaMovs=S.bolsaMovs.filter(x=>x.id!==rec.link);rec.link=null;}
+  if(!actual)rec.link=null;
+  rec.origen=origen;
+  if(origen==='ninguno'){rec.link=null;return;}
+  const entra=rec.tipo==='entrada';                      // entra a ahorro = sale de caja / del dinero retirado
+  const base={fecha:rec.fecha,hora:rec.hora,importe:rec.importe,nota:(entra?'Enviado a ahorro: ':'Recibido de ahorro: ')+cn,ahorroId:rec.id};
+  const col=origen==='caja'?'cajaMovs':'bolsaMovs';
+  const datos=Object.assign({tipo:origen==='caja'?(entra?'retiro':'entrada'):(entra?'salida':'entrada')},base);
+  const ex=rec.link&&S[col].find(x=>x.id===rec.link);
+  if(ex)Object.assign(ex,datos);else{const m=Object.assign({id:uid(),creado:new Date().toISOString()},datos);S[col].push(m);rec.link=m.id;}
+}
 function formAhorroMov(id,cajaId){
   const r=id?S.ahorroMovs.find(x=>x.id===id):null;
+  if(r&&r.cierre){alert('Este apartado viene de un cierre de caja. Edita el cierre de ese día.');return;}
   if(!S.cajasAhorro.some(c=>c.activo)&&!r){alert('Primero crea una caja de ahorro en Catálogos.');return;}
+  const origen0=r?(r.origen||(r.link?'caja':'ninguno')):'caja';
   modal(r?'Editar movimiento de ahorro':'Movimiento de caja de ahorro',
     sel('Caja de ahorro','cajaId',opcionesActivas(S.cajasAhorro,r?r.cajaId:cajaId),r?r.cajaId:(cajaId||S.cajasAhorro.find(c=>c.activo).id))+
-    sel('Tipo','tipo',[['entrada','Entrada (depositar a ahorro)'],['retiro','Retiro (sacar de ahorro)']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota (opcional)','nota','text',r&&r.nota)+
-    `<label class="chk"><input type="checkbox" name="mover" ${r&&r.link?'checked':''}> También mover este dinero del/al efectivo de la caja del día</label>`,
+    sel('Tipo','tipo',[['entrada','Entrada (depositar a ahorro)'],['retiro','Retiro (sacar de ahorro)']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+
+    sel('¿De dónde sale el dinero? (o a dónde regresa)','origen',[['caja','Del efectivo de la caja del día (venta diaria)'],['retirado','Del dinero retirado'],['ninguno','No descontar de ningún lado (solo registrar)']],origen0)+
+    `<p class="mut" id="ahInfo" style="margin:-6px 0 12px"></p>`+
+    inp('Nota (opcional)','nota','text',r&&r.nota),
     d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
       const rec=guardarRec('ahorro',id,{cajaId:d.cajaId,tipo:d.tipo,fecha:d.fecha,hora:d.hora,importe:imp,nota:d.nota.trim()});
-      const cn=nombre(S.cajasAhorro,d.cajaId);
-      if(d.mover){
-        const datos={tipo:rec.tipo==='entrada'?'retiro':'entrada',fecha:rec.fecha,hora:rec.hora,importe:rec.importe,nota:(rec.tipo==='entrada'?'Enviado a ahorro: ':'Recibido de ahorro: ')+cn,ahorroId:rec.id};
-        const ex=rec.link&&S.cajaMovs.find(x=>x.id===rec.link);
-        if(ex)Object.assign(ex,datos);else{const m=Object.assign({id:uid(),creado:new Date().toISOString()},datos);S.cajaMovs.push(m);rec.link=m.id;}
-      }else if(rec.link){S.cajaMovs=S.cajaMovs.filter(x=>x.id!==rec.link);rec.link=null;}
+      enlazarAhorro(rec,d.origen||'ninguno',nombre(S.cajasAhorro,d.cajaId));
       guardar();UI.fecha=d.fecha;render();});
+  const fm=$('#mf');
+  const info=()=>{const o=fm.elements['origen'].value,en=fm.elements['tipo'].value==='entrada';
+    $('#ahInfo').textContent=o==='caja'?(en?'Se descontará del efectivo esperado en caja de ese día.':'Se sumará al efectivo esperado en caja de ese día.'):o==='retirado'?(en?'Se descontará del dinero retirado.':'Se sumará al dinero retirado.'):'No cambia ni la caja ni el dinero retirado.';};
+  fm.elements['origen'].addEventListener('change',info);fm.elements['tipo'].addEventListener('change',info);info();
 }
 function formSaldoInicial(){
   const f=UI.fecha,i=saldoInicialDe(S,f);
@@ -603,6 +685,7 @@ function formConteo(){
 }
 function formBolsaMov(id){
   const r=id?S.bolsaMovs.find(x=>x.id===id):null;
+  if(r&&r.ahorroId){alert('Este movimiento viene de una caja de ahorro. Edítalo desde la sección Cajas de ahorro.');return;}
   modal(r?'Editar ajuste':'Ajuste de dinero retirado',
     sel('Tipo','tipo',[['entrada','Entra dinero (sobrante, devolución)'],['salida','Sale dinero (gasto no registrado, depósito)']],r?r.tipo:'entrada')+fechaHora(r)+inpMonto('importe',r&&r.importe)+inp('Nota (opcional)','nota','text',r&&r.nota),
     d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
@@ -612,29 +695,41 @@ function formCierre(){
   const f=UI.fecha,d=calcDia(S,f),c=d.cierre;
   const fondoDef=c?c.fondo:(S.meta.fondo!=null?S.meta.fondo:0);
   const sob=bolsaSobrante(S,f);
+  const cajasA=S.cajasAhorro.filter(x=>x.activo||(c&&c.ahorroCaja===x.id));
   modal((c?'Editar cierre':'Cierre de caja')+' · '+fmtF(f),
     `<div class="box" style="margin-bottom:12px">${ln('Dinero esperado en caja',money(d.esperado),'tot')}</div>`+
     inpMonto('contado',c?c.contado:d.contado,'Efectivo contado (MXN)')+
     inpMonto('fondo',fondoDef,'Se queda en caja para mañana (MXN)')+
-    `<div class="box" style="margin-bottom:12px"><div class="ln"><span>Sobrante del dinero retirado (días anteriores)</span><span>${money(sob)}</span></div><div class="ln"><span>Nos llevamos hoy de la caja</span><span id="cLlev">—</span></div><div class="ln tot"><span>Total dinero retirado para mañana</span><span id="cTot">—</span></div><div class="ln"><span>Diferencia (contado − esperado)</span><span id="cDif">—</span></div></div>`+
+    (cajasA.length?inpMonto('ahorro',c&&c.ahorro?c.ahorro:null,'Se aparta a ahorro hoy, de la venta del día (MXN, opcional)')+(cajasA.length>1?sel('Caja de ahorro','ahorroCaja',cajasA.map(x=>[x.id,x.nombre]),(c&&c.ahorroCaja)||cajasA[0].id):`<input type="hidden" name="ahorroCaja" value="${cajasA[0].id}">`):'')+
+    `<div class="box" style="margin-bottom:12px"><div class="ln"><span>Sobrante del dinero retirado (días anteriores)</span><span>${money(sob)}</span></div>${cajasA.length?'<div class="ln"><span>Se aparta a ahorro</span><span id="cAh">—</span></div>':''}<div class="ln"><span>Nos llevamos hoy de la caja</span><span id="cLlev">—</span></div><div class="ln tot"><span>Total dinero retirado para mañana</span><span id="cTot">—</span></div><div class="ln"><span>Diferencia (contado − esperado)</span><span id="cDif">—</span></div></div>`+
     inp('Nota del cierre (opcional)','nota','text',c&&c.nota),
     x=>{const cont=parseMonto(x.contado,true);if(cont==null)return 'Escribe el efectivo contado (puede ser 0).';
       const fondo=parseMonto(x.fondo,true);if(fondo==null)return 'Escribe cuánto se queda en caja (puede ser 0).';
+      const ah=(cajasA.length&&String(x.ahorro||'').trim()!=='')?parseMonto(x.ahorro,true):0;
+      if(ah==null)return 'El monto para ahorro no es válido.';
       if(fondo>cont)return 'No puedes dejar en caja más de lo que contaste. Revisa el conteo.';
-      S.cajaDia[f]=Object.assign(S.cajaDia[f]||{},{contado:cont,cierre:{hora:ahora(),esperado:d.esperado,contado:cont,diferencia:cont-d.esperado,fondo,retirado:cont-fondo,nota:x.nota.trim(),cerrado:new Date().toISOString()}});
-      S.meta.fondo=fondo;bit(c?'Editó':'Cerró',`caja del ${fmtF(f)}: contado ${money(cont)}, se queda ${money(fondo)}, se lleva ${money(cont-fondo)}`);guardar();render();},'Cerrar caja');
-  const calc=()=>{const co=parseMonto($('#mf [name=contado]').value,true),fo=parseMonto($('#mf [name=fondo]').value,true);
-    $('#cLlev').textContent=(co==null||fo==null||fo>co)?'—':money(co-fo);$('#cTot').textContent=(co==null||fo==null||fo>co)?'—':money(sob+co-fo);$('#cDif').innerHTML=co==null?'—':difHtml(co-d.esperado);};
-  ['contado','fondo'].forEach(n=>$('#mf [name='+n+']').addEventListener('input',calc));calc();
+      if(fondo+ah>cont)return 'Lo que se queda en caja más lo que se aparta a ahorro no puede ser mayor a lo contado.';
+      const cierre={hora:ahora(),esperado:d.esperado,contado:cont,diferencia:cont-d.esperado,fondo,retirado:cont-fondo-ah,nota:x.nota.trim(),cerrado:new Date().toISOString()};
+      if(ah>0){cierre.ahorro=ah;cierre.ahorroCaja=x.ahorroCaja;}
+      S.cajaDia[f]=Object.assign(S.cajaDia[f]||{},{contado:cont,cierre});
+      S.ahorroMovs=S.ahorroMovs.filter(m=>m.cierre!==f);           // el apartado del cierre se rehace
+      if(ah>0)S.ahorroMovs.push({id:uid(),creado:new Date().toISOString(),cajaId:x.ahorroCaja,tipo:'entrada',fecha:f,hora:ahora(),importe:ah,nota:'Ahorro del cierre de caja',origen:'cierre',cierre:f});
+      S.meta.fondo=fondo;bit(c?'Editó':'Cerró',`caja del ${fmtF(f)}: contado ${money(cont)}, se queda ${money(fondo)}${ah?', a ahorro '+money(ah):''}, se lleva ${money(cont-fondo-ah)}`);guardar();render();},'Cerrar caja');
+  const val=n=>{const el=$('#mf [name='+n+']');if(!el)return 0;return String(el.value).trim()===''&&n==='ahorro'?0:parseMonto(el.value,true);};
+  const calc=()=>{const co=val('contado'),fo=val('fondo'),ah=val('ahorro');
+    const ok=co!=null&&fo!=null&&ah!=null&&fo+ah<=co;
+    if($('#cAh'))$('#cAh').textContent=ah==null?'—':money(ah);
+    $('#cLlev').textContent=ok?money(co-fo-ah):'—';$('#cTot').textContent=ok?money(sob+co-fo-ah):'—';$('#cDif').innerHTML=co==null?'—':difHtml(co-d.esperado);};
+  ['contado','fondo','ahorro'].forEach(n=>{const el=$('#mf [name='+n+']');if(el)el.addEventListener('input',calc);});calc();
 }
 function reabrirCierre(){
   const f=UI.fecha;if(!(S.cajaDia[f]&&S.cajaDia[f].cierre))return;
   if(!confirm(`¿Reabrir la caja del ${fmtF(f)}?\nSe quitará el cierre y el dinero retirado de ese día dejará de contarse hasta que vuelvas a cerrar.`))return;
-  delete S.cajaDia[f].cierre;bit('Reabrió',`caja del ${fmtF(f)}`);guardar();render();
+  delete S.cajaDia[f].cierre;S.ahorroMovs=S.ahorroMovs.filter(m=>m.cierre!==f);bit('Reabrió',`caja del ${fmtF(f)}`);guardar();render();
 }
 function textoCierre(f){
   const d=calcDia(S,f),c=d.cierre;
-  return `CIERRE DE CAJA · Su Chef a tu mesa\nFecha: ${fmtF(f)}\n\nVenta total: ${money(d.ventaTotal)}\n  Efectivo: ${money(d.ventaEf)}\n  Tarjeta: ${money(d.ventaTj)}\n  Transferencia: ${money(d.ventaTr)}\nGastos y pagos: ${money(d.gastoTotal)}\n\nEfectivo esperado: ${money(c.esperado)}\nEfectivo contado: ${money(c.contado)}\nDiferencia: ${money(c.diferencia)}\n\nSe queda en caja: ${money(c.fondo)}\nSobrante del dinero retirado anterior: ${money(bolsaSobrante(S,f))}\nNos llevamos hoy de la caja: ${money(c.retirado)}\nTotal dinero retirado: ${money(calcBolsa(S,f))}`+(c.nota?`\nNota: ${c.nota}`:'');
+  return `CIERRE DE CAJA · Su Chef a tu mesa\nFecha: ${fmtF(f)}\n\nVenta total: ${money(d.ventaTotal)}\n  Efectivo: ${money(d.ventaEf)}\n  Tarjeta: ${money(d.ventaTj)}\n  Transferencia: ${money(d.ventaTr)}${d.ventaCredito?'\n  A crédito (por cobrar): '+money(d.ventaCredito):''}\nGastos y pagos: ${money(d.gastoTotal)}${d.cobrosTotal?'\nCobros de créditos recibidos: '+money(d.cobrosTotal):''}\n\nEfectivo esperado: ${money(c.esperado)}\nEfectivo contado: ${money(c.contado)}\nDiferencia: ${money(c.diferencia)}\n\nSe queda en caja: ${money(c.fondo)}${c.ahorro?'\nSe aparta a ahorro: '+money(c.ahorro):''}\nSobrante del dinero retirado anterior: ${money(bolsaSobrante(S,f))}\nNos llevamos hoy de la caja: ${money(c.retirado)}\nTotal dinero retirado: ${money(calcBolsa(S,f))}`+(c.nota?`\nNota: ${c.nota}`:'');
 }
 function copiarCierre(f){
   const t=textoCierre(f);
@@ -642,10 +737,11 @@ function copiarCierre(f){
   if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t).then(()=>alert('Resumen copiado. Pégalo en WhatsApp.')).catch(ver);else ver();
 }
 function formCat(tipo,id){
-  const T={proveedores:['proveedor',true],terceros:['tercero',true],categorias:['categoría',false],metodos:['método de pago',false],cajasAhorro:['caja de ahorro',false]}[tipo];
+  const T={clientes:['cliente',true],proveedores:['proveedor',true],terceros:['tercero',true],categorias:['categoría',false],metodos:['método de pago',false],cajasAhorro:['caja de ahorro',false]}[tipo];
   const r=id?S[tipo].find(x=>x.id===id):null;
   let extra='';
   if(T[1])extra=inp('Teléfono (opcional)','telefono','tel',r&&r.telefono)+inp('Notas (opcional)','notas','text',r&&r.notas);
+  if(tipo==='clientes')extra+=inp('Días de crédito habituales (opcional)','diasCredito','number',r&&r.diasCredito!=null?r.diasCredito:'','min="0" max="60" inputmode="numeric" placeholder="3"');
   if(tipo==='metodos')extra=sel('Tipo de método (define cómo se calcula)','tipo',[['efectivo','Efectivo (afecta caja)'],['tarjeta','Tarjeta (suma a la cuenta bancaria)'],['transferencia','Transferencia (suma a la misma cuenta bancaria)'],['otro','Otro']],r?r.tipo:'otro',r&&['ef','tj','tr'].includes(r.id)?'disabled':'')+
     `<div class="mut" style="margin-bottom:6px">Comisión de la terminal (solo aplica a métodos de tipo tarjeta). Captura la que te cobra Mercado Pago según tu plan.</div>`+inp('Comisión (%)','comPct','text',r&&r.comisionPct!=null?r.comisionPct:'','inputmode="decimal" placeholder="0"')+inpMonto('comFijo',r&&r.comisionFijo?r.comisionFijo:null,'Cargo fijo por cobro (MXN, opcional)')+`<label class="chk"><input type="checkbox" name="comIva" ${r&&r.comisionIva?'checked':''}> La comisión lleva IVA (16%)</label>`;
   modal((r?'Editar ':'Nuevo ')+T[0],inp('Nombre','nombre','text',r&&r.nombre)+extra+`<label class="chk"><input type="checkbox" name="activo" ${!r||r.activo?'checked':''}> Activo</label>`,
@@ -653,6 +749,7 @@ function formCat(tipo,id){
       if(S[tipo].some(x=>x.id!==id&&x.nombre.toLowerCase()===n.toLowerCase()))return 'Ya existe uno con ese nombre.';
       const datos={nombre:n,activo:!!d.activo};
       if(T[1]){datos.telefono=(d.telefono||'').trim();datos.notas=(d.notas||'').trim();}
+      if(tipo==='clientes'){const dc=String(d.diasCredito||'').trim();if(dc!==''){const n=parseInt(dc,10);if(!(n>=0&&n<=60))return 'Los días de crédito deben estar entre 0 y 60.';datos.diasCredito=n;}else datos.diasCredito=null;}
       if(tipo==='metodos'&&d.tipo)datos.tipo=d.tipo;
       if(tipo==='metodos'){const pct=parsePct(d.comPct);if(pct==null)return 'El % de comisión no es válido (ejemplo: 3.5).';const fijo=String(d.comFijo||'').trim()===''?0:parseMonto(d.comFijo,true);if(fijo==null)return 'El cargo fijo no es válido (ejemplo: 3.00).';datos.comisionPct=pct;datos.comisionFijo=fijo;datos.comisionIva=!!d.comIva;}
       if(r){Object.assign(r,datos);bit('Editó',`${T[0]} ${n}`);}else{S[tipo].push(Object.assign({id:uid()},datos,tipo==='metodos'&&!datos.tipo?{tipo:'otro'}:{}));bit('Creó',`${T[0]} ${n}`);}
@@ -680,33 +777,132 @@ function vPanel(){
   const metodos=d.porMetodo.filter(m=>m.activo||m.total>0).map(m=>card('Venta · '+esc(m.nombre),money(m.total))).join('');
   const dif=d.cierre?d.cierre.diferencia:null;
   const difTxt=dif==null?'<span class="mut">Se calcula al cerrar caja</span>':dif===0?'<span class="ok">✔ Cuadra</span>':dif<0?`<span class="neg">Faltante ${money(-dif)}</span>`:`<span class="pos">Sobrante ${money(dif)}</span>`;
+  const cx=resumenCxc(S,hoy());
+  const avisoCxc=cx.nVenc?`<div class="warn">⚠️ Tienes ${cx.nVenc} crédito(s) vencido(s) por ${money(cx.vencido)}. <a href="#" data-act="ir" data-t="cobrar">Ver cuentas por cobrar</a></div>`:(cx.nPV?`<div class="warn">🔔 ${cx.nPV} crédito(s) vencen hoy o mañana por ${money(cx.porVencer)}. <a href="#" data-act="ir" data-t="cobrar">Ver cuentas por cobrar</a></div>`:'');
   const ahorros=S.cajasAhorro.filter(c=>c.activo||saldoAhorro(S,c.id)!==0).map(c=>{
     const mv=S.ahorroMovs.filter(m=>m.cajaId===c.id&&m.fecha===f);const e=sum(mv.filter(m=>m.tipo==='entrada').map(m=>m.importe)),s=sum(mv.filter(m=>m.tipo==='retiro').map(m=>m.importe));
     return ln(esc(c.nombre)+`<span class="mut"> · hoy +${money(e)} / −${money(s)}</span>`,`<b>${money(saldoAhorro(S,c.id,f))}</b>`);}).join('');
-  return `${aviso}<div class="h"><h2>Panel del día</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Venta</button> <button class="btn" data-act="nuevo" data-k="gasto">+ Gasto</button> <button class="btn" data-act="nuevo" data-k="caja">+ Caja</button></div></div>${dateBar()}
+  return `${aviso}${avisoCxc}<div class="h"><h2>Panel del día</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Venta</button> <button class="btn" data-act="nuevo" data-k="gasto">+ Gasto</button> <button class="btn" data-act="nuevo" data-k="caja">+ Caja</button> <button class="btn ver" data-act="nuevoCredito">🤝 Venta a crédito</button></div></div>${dateBar()}
   <div class="grid">${card('Venta total del día',money(d.ventaTotal),'big')}${metodos}
-  ${card('Pagos a proveedores',money(d.pagosProv))}${card('Pagos a terceros',money(d.pagosTer))}${card('Total de gastos y pagos',money(d.gastoTotal))}</div>
+  ${d.ventaCredito?card('A crédito (por cobrar)',money(d.ventaCredito)):''}${d.cobrosTotal?card('Cobros de créditos del día',money(d.cobrosTotal)):''}${card('Pagos a proveedores',money(d.pagosProv))}${card('Pagos a terceros',money(d.pagosTer))}${card('Total de gastos y pagos',money(d.gastoTotal))}</div>
   <h3>Caja (efectivo físico)</h3><div class="box">
    ${ln(`Saldo inicial ${d.saldoInicialManual?'':'<span class="mut">(sugerido)</span>'} <button class="btn sm" data-act="saldoini">Editar</button>`,money(d.saldoInicial))}
-   ${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}
+   ${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}
    ${ln('− Pagos en efectivo',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}
    ${ln('Dinero esperado en caja',money(d.esperado),'tot')}
    ${ln('Dinero contado en caja <button class="btn sm" data-act="conteo">Registrar conteo</button>',d.contado==null?'—':money(d.contado))}
    ${ln('Diferencia',difTxt,'tot')}</div>
   <p class="mut">Las ventas con tarjeta y transferencia no se suman al efectivo de caja; entran a la cuenta bancaria.</p>
   <h3>Cierre y dinero retirado</h3><div class="box">
-   ${d.cierre?ln('Se quedó en caja (inicia mañana)',money(d.cierre.fondo))+ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,f)))+ln('Nos llevamos hoy de la caja',money(d.cierre.retirado))+ln('Cierre','<span class="ok">✔ Caja cerrada</span> <button class="btn sm" data-act="ir" data-t="caja">Ver</button>'):ln('Cierre del día','<button class="btn pri sm" data-act="cierre">Cerrar caja</button>')}
+   ${d.cierre?ln('Se quedó en caja (inicia mañana)',money(d.cierre.fondo))+ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,f)))+(d.cierre.ahorro?ln('Se apartó a ahorro',money(d.cierre.ahorro)):'')+ln('Nos llevamos hoy de la caja',money(d.cierre.retirado))+ln('Cierre','<span class="ok">✔ Caja cerrada</span> <button class="btn sm" data-act="ir" data-t="caja">Ver</button>'):ln('Cierre del día','<button class="btn pri sm" data-act="cierre">Cerrar caja</button>')}
    ${d.cierre?'':ln('Dinero retirado que traemos de ayer (sobrante)',money(calcBolsa(S,addDays(f,-1))))}
    ${d.pagosEfRet?ln('Pagado hoy con dinero retirado',money(d.pagosEfRet)):''}
    ${ln(d.cierre?'Total dinero retirado (sobrante + lo de hoy)':'Dinero retirado disponible','<b>'+money(calcBolsa(S,f))+'</b> <button class="btn sm" data-act="ir" data-t="bolsa">Ver</button>','tot')}</div>
   ${d.cierreDesactualizado?'<div class="warn" style="margin-top:10px">⚠️ Cambió algo después del cierre de este día (esperado al cerrar '+money(d.cierre.esperado)+', ahora '+money(d.esperado)+'). Edita el cierre en Caja.</div>':''}
-  <h3>Cuenta bancaria (tarjeta + transferencia)</h3><div class="box">${ln('Ventas con tarjeta del día',money(d.ventaTj))}${ln('Ventas por transferencia del día',money(d.ventaTr))}${ln('Cobros brutos del día (tarjeta + transf.)',money(d.ventaTj+d.ventaTr))}${d.comisiones?ln('− Comisión de la terminal',money(d.comisiones)):''}${ln('Cobros netos a la cuenta',money(d.ventaTj+d.ventaTr-d.comisiones),'tot')}${ln('Pagos del día desde la cuenta (tarjeta/transf.)',money(d.pagosTj+d.pagosTr))}${ln('Saldo registrado a esta fecha',money(saldoTarjeta(S,f)),'tot')}</div>
+  <h3>Cuenta bancaria (tarjeta + transferencia)</h3><div class="box">${ln('Ventas con tarjeta del día',money(d.ventaTj))}${ln('Ventas por transferencia del día',money(d.ventaTr))}${ln('Cobros brutos del día (tarjeta + transf.)',money(d.ventaTj+d.ventaTr))}${d.comisiones?ln('− Comisión de la terminal',money(d.comisiones)):''}${d.cobrosBanco?ln('Cobros de créditos (tarjeta/transf.)',money(d.cobrosBanco)):''}${ln('Cobros netos a la cuenta',money(d.ventaTj+d.ventaTr+d.cobrosBanco-d.comisiones),'tot')}${ln('Pagos del día desde la cuenta (tarjeta/transf.)',money(d.pagosTj+d.pagosTr))}${ln('Saldo registrado a esta fecha',money(saldoTarjeta(S,f)),'tot')}</div>
+  <h3>Cuentas por cobrar</h3><div class="box">${ln('Total por cobrar a clientes',money(cx.total)+' <button class="btn sm" data-act="ir" data-t="cobrar">Ver</button>','tot')}${cx.vencido?ln('Vencido',`<span class="neg">${money(cx.vencido)}</span>`):''}</div>
   <h3>Cajas de ahorro</h3><div class="box">${ahorros||'<div class="empty">Aún no hay cajas de ahorro. Créalas en Catálogos.</div>'}</div>`;
+}
+function enlazarComision(fm,escribirInicial){
+  const ci=fm.elements['comision'],im=fm.elements['importe'],me=fm.elements['metodo'];let manual=false;
+  const refrescar=escribir=>{
+    const m=S.metodos.find(x=>x.id===me.value),esT=!!m&&m.tipo==='tarjeta';
+    $('#comWrap').style.display=esT?'':'none';if(!esT)return;
+    const imp=parseMonto(im.value);
+    if(escribir&&!manual)ci.value=imp?decimal(comisionMetodo(m,imp)):'';
+    const c=parseMonto(ci.value,true)||0;
+    $('#comInfo').innerHTML=imp?`Neto que llega a la cuenta: <b>${money(Math.max(0,imp-c))}</b>`:'';
+  };
+  im.addEventListener('input',()=>refrescar(true));me.addEventListener('change',()=>refrescar(true));ci.addEventListener('input',()=>{manual=true;refrescar(false);});
+  refrescar(escribirInicial);
+}
+function formCredito(id){
+  const r=id?S.creditos.find(x=>x.id===id):null;
+  const cl=S.clientes.filter(c=>c.activo||(r&&r.clienteId===c.id));
+  modal(r?'Editar venta a crédito':'🤝 Venta a crédito',
+    `<p class="mut">El cliente se lleva el pedido ahora y paga después. No entra a caja ni al banco hasta que registres su pago.</p>`+
+    fechaHora(r)+
+    sel('Cliente','cliente',[['','— Elige un cliente —']].concat(cl.map(c=>[c.id,c.nombre])),r&&r.clienteId)+
+    inp('…o escribe un cliente nuevo','nuevo','text','','placeholder="Nombre del cliente nuevo" autocomplete="off"')+
+    inpMonto('importe',r&&r.importe,'Importe a crédito (MXN)')+
+    inp('Días de crédito','dias','number',r?r.dias:3,'min="0" max="60" inputmode="numeric"')+
+    `<div class="mut" id="venceInfo" style="margin:-6px 0 12px"></div>`+
+    inp('Concepto o nota (opcional)','nota','text',r&&r.nota),
+    d=>{
+      const e=valFH(d);if(e)return e;
+      const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero, por ejemplo 450.00';
+      const nuevo=(d.nuevo||'').trim();let cid=nuevo?'':d.cliente;
+      if(!cid&&!nuevo)return 'Elige un cliente o escribe uno nuevo.';
+      const dias=parseInt(d.dias,10);if(!(dias>=0&&dias<=60))return 'Los días de crédito deben estar entre 0 y 60.';
+      if(r){const pagado=r.importe-saldoCredito(S,r);if(imp<pagado)return 'El importe no puede ser menor a lo ya cobrado ('+money(pagado)+').';}
+      if(nuevo){const ex=S.clientes.find(c=>c.nombre.toLowerCase()===nuevo.toLowerCase());
+        if(ex)cid=ex.id;else{cid=uid();S.clientes.push({id:cid,nombre:nuevo,telefono:'',notas:'',activo:true,diasCredito:dias});bit('Creó','cliente '+nuevo);}}
+      guardarRec('credito',id,{fecha:d.fecha,hora:d.hora,clienteId:cid,importe:imp,dias,vence:addDays(d.fecha,dias),nota:d.nota.trim()});
+      UI.fecha=d.fecha;render();});
+  const fm=$('#mf');let manualDias=!!r;
+  const info=()=>{const f=fm.elements['fecha'].value,n=parseInt(fm.elements['dias'].value,10);$('#venceInfo').textContent=(f&&n>=0)?'Fecha límite de pago: '+fmtF(addDays(f,n)):'';};
+  fm.elements['dias'].addEventListener('input',()=>{manualDias=true;info();});
+  fm.elements['fecha'].addEventListener('input',info);
+  fm.elements['cliente'].addEventListener('change',()=>{const c=S.clientes.find(x=>x.id===fm.elements['cliente'].value);if(c&&c.diasCredito!=null&&!manualDias)fm.elements['dias'].value=c.diasCredito;info();});
+  info();
+}
+function editarAbono(id){formAbono(null,id);}
+function formAbono(creditoId,id){
+  const r=id?S.abonos.find(x=>x.id===id):null;
+  const c=S.creditos.find(x=>x.id===(r?r.creditoId:creditoId));if(!c)return;
+  const saldoSin=saldoCredito(S,c)+(r?r.importe:0);
+  modal((r?'Editar pago · ':'Registrar pago · ')+nombre(S.clientes,c.clienteId),
+    `<div class="box" style="margin-bottom:10px">${ln('Crédito del '+fmtF(c.fecha),money(c.importe))}${ln('Saldo pendiente',`<b>${money(saldoSin)}</b>`,'tot')}</div>`+
+    fechaHora(r)+inpMonto('importe',r?r.importe:saldoSin,'Importe que paga (MXN)')+
+    sel('Forma de pago','metodo',opcionesActivas(S.metodos,r&&r.metodo),r?r.metodo:'ef')+
+    `<div id="comWrap">${inpMonto('comision',r&&r.comision?r.comision:null,'Comisión de la terminal (MXN) — se calcula sola, puedes corregirla')}<div class="mut" id="comInfo" style="margin:-6px 0 12px"></div></div>`+
+    inp('Nota (opcional)','nota','text',r&&r.nota),
+    d=>{
+      const e=valFH(d);if(e)return e;
+      const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero.';
+      if(imp>saldoSin)return 'El pago no puede ser mayor al saldo pendiente ('+money(saldoSin)+').';
+      let com=0;
+      if(tipoMetodo(S,d.metodo)==='tarjeta'){com=String(d.comision||'').trim()===''?0:parseMonto(d.comision,true);if(com==null)return 'La comisión no es válida (ejemplo: 35.00).';if(com>imp)return 'La comisión no puede ser mayor al pago.';}
+      guardarRec('abono',id,{creditoId:c.id,fecha:d.fecha,hora:d.hora,importe:imp,metodo:d.metodo,comision:com,nota:d.nota.trim()});
+      UI.fecha=d.fecha;render();},'Registrar pago');
+  enlazarComision($('#mf'),!r);
+}
+function verCredito(id){
+  const c=S.creditos.find(x=>x.id===id);if(!c)return;
+  const ab=ordenar(S.abonos.filter(a=>a.creditoId===id)),s=saldoCredito(S,c);
+  modal('Detalle del crédito',
+    `<div class="box">${ln('Cliente',esc(nombre(S.clientes,c.clienteId)))}${ln('Venta',fmtF(c.fecha)+' '+c.hora)}${ln('Fecha límite de pago',fmtF(c.vence)+' ('+c.dias+' días)')}${ln('Importe',money(c.importe))}${ln('Cobrado',money(c.importe-s))}${ln('Saldo',`<b class="${s>0?'neg':'ok'}">${money(s)}</b>`,'tot')}${c.nota?ln('Nota',esc(c.nota)):''}</div>
+    <h3>Pagos recibidos</h3><div class="box">${ab.length?ab.map(a=>`<div class="item"><div class="m"><b class="pos">+ ${money(a.importe)} <span class="tag">${esc(nombre(S.metodos,a.metodo)||'—')}</span></b><span class="mut">${fmtF(a.fecha)} ${a.hora}${a.comision?' · comisión '+money(a.comision):''}${a.nota?' · '+esc(a.nota):''}</span></div><div class="a">${acc('abono',a.id)}</div></div>`).join(''):'<div class="empty">Aún no hay pagos.</div>'}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${s>0?`<button type="button" class="btn ver" data-act="cobrar" data-id="${c.id}">Registrar pago</button>`:''}<button type="button" class="btn" data-act="edit" data-k="credito" data-id="${c.id}">Editar crédito</button><button type="button" class="btn del" data-act="del" data-k="credito" data-id="${c.id}">Eliminar</button></div>`);
+}
+function tagCredito(e,c,hoyF){
+  if(e==='pagado')return '<span class="tag" style="background:#e8f0dc;border-color:var(--verde);color:var(--verde-txt)">Pagado</span>';
+  if(e==='vencido')return `<span class="tag" style="background:#fde8e6;border-color:var(--rojo);color:var(--rojo)">Vencido hace ${diasEntre(c.vence,hoyF)} d</span>`;
+  if(e==='por-vencer')return `<span class="tag" style="background:#FFF1E6;border-color:var(--naranja)">${c.vence===hoyF?'Vence hoy':'Vence mañana'}</span>`;
+  return `<span class="tag">Vence ${fmtF(c.vence)}</span>`;
+}
+function vCobrar(){
+  const hoyF=hoy(),R=resumenCxc(S,hoyF),flt=UI.cobrarFiltro||'pend';
+  const filas=S.creditos.map(c=>({c,s:saldoCredito(S,c),e:estadoCredito(S,c,hoyF)})).filter(x=>flt==='todos'||(flt==='pend'?x.s>0:x.s<=0));
+  filas.sort((a,b)=>flt==='pend'?(a.c.vence+a.c.fecha).localeCompare(b.c.vence+b.c.fecha):(b.c.fecha+b.c.hora).localeCompare(a.c.fecha+a.c.hora));
+  const porCli={};S.creditos.forEach(c=>{const s=saldoCredito(S,c);if(s>0)porCli[c.clienteId]=(porCli[c.clienteId]||0)+s;});
+  const cli=Object.keys(porCli).sort((a,b)=>porCli[b]-porCli[a]);
+  const sub=t=>`<div style="font-weight:400;font-size:12px;color:#6b6762;font-family:Lato,sans-serif">${t}</div>`;
+  return `<div class="h"><h2>Cuentas por cobrar</h2><button class="btn ver" data-act="nuevoCredito">🤝 Venta a crédito</button></div>
+  <div class="grid">${card('Total por cobrar',money(R.total),'big')}${card('Vencido',`<span class="${R.vencido?'neg':''}">${money(R.vencido)}</span>`+sub(R.nVenc+' crédito(s)'))}${card('Vence hoy o mañana',money(R.porVencer)+sub(R.nPV+' crédito(s)'))}${card('Clientes con saldo',R.clientes)}</div>
+  ${cli.length?`<h3>Saldo por cliente</h3><div class="box">${cli.map(k=>ln(esc(nombre(S.clientes,k)),money(porCli[k]))).join('')}</div>`:''}
+  <h3>Créditos</h3><div class="datebar">${[['pend','Pendientes'],['pag','Pagados'],['todos','Todos']].map(o=>`<button class="btn ${flt===o[0]?'pri':''}" data-act="filtroCobrar" data-v="${o[0]}">${o[1]}</button>`).join('')}</div>
+  <div class="box">${filas.length?filas.map(x=>`<div class="item"><div class="m"><b>${esc(nombre(S.clientes,x.c.clienteId)||'—')} · ${money(x.c.importe)} ${tagCredito(x.e,x.c,hoyF)}</b><span class="mut">Venta ${fmtF(x.c.fecha)} · cobrado ${money(x.c.importe-x.s)} · <b>saldo ${money(x.s)}</b>${x.c.nota?' · '+esc(x.c.nota):''}</span></div><div class="a">${x.s>0?`<button class="btn sm ver" data-act="cobrar" data-id="${x.c.id}">Registrar pago</button>`:''}<button class="btn sm" data-act="verCredito" data-id="${x.c.id}">Detalle</button></div></div>`).join(''):`<div class="empty">${flt==='pend'?'No hay créditos pendientes. 🎉':'Sin registros.'}</div>`}</div>`;
+}
+function listaCreditosDia(){
+  const l=ordenar(S.creditos.filter(c=>c.fecha===UI.fecha));
+  if(!l.length)return '';
+  return `<h3>Ventas a crédito del día</h3><div class="box">${l.map(c=>`<div class="item"><div class="m"><b>${esc(nombre(S.clientes,c.clienteId)||'—')} · ${money(c.importe)}</b><span class="mut">${c.hora} · vence ${fmtF(c.vence)}${c.nota?' · '+esc(c.nota):''}</span></div><div class="a"><button class="btn sm" data-act="verCredito" data-id="${c.id}">Detalle</button></div></div>`).join('')}</div>`;
 }
 function vVentas(){
   const l=ordenar(S.ventas.filter(x=>x.fecha===UI.fecha));const t=sum(l.map(x=>x.importe));
-  return `<div class="h"><h2>Ventas</h2><button class="btn pri" data-act="nuevo" data-k="venta">+ Nueva venta</button></div>${dateBar()}
-  <div class="grid">${card('Total del día',money(t),'big')}</div><h3>Registros</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b>${money(x.importe)} <span class="tag">${esc(nombre(S.metodos,x.metodo)||'—')}</span></b><span class="mut">${x.hora}${x.comision?' · comisión '+money(x.comision)+' · neto '+money(x.importe-x.comision):''}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('venta',x.id)}</div></div>`).join(''):'<div class="empty">No hay ventas en esta fecha.</div>'}</div>`;
+  return `<div class="h"><h2>Ventas</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Nueva venta</button> <button class="btn ver" data-act="nuevoCredito">🤝 Venta a crédito</button></div></div>${dateBar()}
+  <div class="grid">${card('Total del día',money(t),'big')}</div><h3>Registros</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b>${money(x.importe)} <span class="tag">${esc(nombre(S.metodos,x.metodo)||'—')}</span></b><span class="mut">${x.hora}${x.comision?' · comisión '+money(x.comision)+' · neto '+money(x.importe-x.comision):''}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('venta',x.id)}</div></div>`).join(''):'<div class="empty">No hay ventas en esta fecha.</div>'}</div>${listaCreditosDia()}`;
 }
 function vGastos(){
   const l=ordenar(S.gastos.filter(x=>x.fecha===UI.fecha));const t=sum(l.map(x=>x.importe));
@@ -719,8 +915,8 @@ function vCaja(){
   return `<div class="h"><h2>Caja y efectivo</h2><button class="btn pri" data-act="nuevo" data-k="caja">+ Entrada / retiro</button></div>${dateBar()}
   <div class="grid">${card('Efectivo esperado',money(d.esperado),'big')}${card('Quedó en caja + ventas en efectivo',money(lleva)+'<div style="font-weight:400;font-size:12px;color:#6b6762;font-family:Lato,sans-serif">'+money(d.saldoInicial)+' (quedó) + '+money(d.ventaEf)+' (ventas)</div>')}${card('Contado',d.cierre?money(d.cierre.contado):(d.contado==null?'—':money(d.contado)))}</div>
   <div style="margin:12px 0"><button class="btn" data-act="saldoini">Saldo inicial</button> <button class="btn ver" data-act="conteo">Conteo final</button></div>
-  ${d.cierre?`<h3>Cierre del día</h3>${d.cierreDesactualizado?`<div class="warn">⚠️ Hubo cambios después del cierre: esperado al cerrar ${money(d.cierre.esperado)}, ahora ${money(d.esperado)}. Edita el cierre para actualizarlo.</div>`:''}<div class="box">${ln('Esperado al cerrar',money(d.cierre.esperado))}${ln('Contado',money(d.cierre.contado))}${ln('Diferencia',difHtml(d.cierre.diferencia))}${ln('Se queda en caja (mañana inicia con esto)',money(d.cierre.fondo),'tot')}${ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,UI.fecha)))}${ln('Nos llevamos hoy de la caja',money(d.cierre.retirado),'tot')}${ln('Total dinero retirado (sobrante + lo de hoy)',money(calcBolsa(S,UI.fecha)),'tot')}${d.cierre.nota?ln('Nota',esc(d.cierre.nota)):''}<div style="padding:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="cierre">Editar cierre</button><button class="btn sm ver" data-act="copiarCierre">Copiar resumen</button><button class="btn sm del" data-act="reabrir">Reabrir caja</button></div></div>`:`<div style="margin:0 0 12px"><button class="btn pri" data-act="cierre">🔒 Cerrar caja del día</button> <span class="mut">Define cuánto se queda y cuánto se lleva.</span></div>`}
-  <div class="box">${ln('Saldo inicial',money(d.saldoInicial))}${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${ln('− Pagos en efectivo (de la caja)',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${ln('= Efectivo esperado',money(d.esperado),'tot')}</div>
+  ${d.cierre?`<h3>Cierre del día</h3>${d.cierreDesactualizado?`<div class="warn">⚠️ Hubo cambios después del cierre: esperado al cerrar ${money(d.cierre.esperado)}, ahora ${money(d.esperado)}. Edita el cierre para actualizarlo.</div>`:''}<div class="box">${ln('Esperado al cerrar',money(d.cierre.esperado))}${ln('Contado',money(d.cierre.contado))}${ln('Diferencia',difHtml(d.cierre.diferencia))}${ln('Se queda en caja (mañana inicia con esto)',money(d.cierre.fondo),'tot')}${ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,UI.fecha)))}${d.cierre.ahorro?ln('Se apartó a ahorro',money(d.cierre.ahorro)):''}${ln('Nos llevamos hoy de la caja',money(d.cierre.retirado),'tot')}${ln('Total dinero retirado (sobrante + lo de hoy)',money(calcBolsa(S,UI.fecha)),'tot')}${d.cierre.nota?ln('Nota',esc(d.cierre.nota)):''}<div style="padding:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="cierre">Editar cierre</button><button class="btn sm ver" data-act="copiarCierre">Copiar resumen</button><button class="btn sm del" data-act="reabrir">Reabrir caja</button></div></div>`:`<div style="margin:0 0 12px"><button class="btn pri" data-act="cierre">🔒 Cerrar caja del día</button> <span class="mut">Define cuánto se queda y cuánto se lleva.</span></div>`}
+  <div class="box">${ln('Saldo inicial',money(d.saldoInicial))}${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}${ln('− Pagos en efectivo (de la caja)',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${ln('= Efectivo esperado',money(d.esperado),'tot')}</div>
   <h3>Entradas y retiros del día</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)} · ${x.tipo==='entrada'?'Entrada':'Retiro'}</b><span class="mut">${x.hora}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('caja',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos de efectivo en esta fecha.</div>'}</div>${d.pagosEfRet?`<p class="mut">Este día también se pagaron ${money(d.pagosEfRet)} con dinero retirado (no afectan la caja).</p>`:''}${histCierres()}`;
 }
 function vTarjeta(){
@@ -728,11 +924,12 @@ function vTarjeta(){
   const movs=ordenar([].concat(
     S.tarjetaMovs.filter(x=>x.fecha===f).map(x=>({k:'tarjeta',id:x.id,fecha:x.fecha,hora:x.hora,s:x.tipo==='entrada'?1:-1,imp:x.importe,txt:x.nota||'Movimiento manual',man:true})),
     S.ventas.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'venta',id:x.id,fecha:x.fecha,hora:x.hora,s:1,imp:x.importe-(x.comision||0),txt:'Venta por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+(x.comision?' (bruta '+money(x.importe)+' − comisión '+money(x.comision)+')':'')+(x.nota?' · '+x.nota:'')})),
-    S.gastos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'gasto',id:x.id,fecha:x.fecha,hora:x.hora,s:-1,imp:x.importe,txt:'Pago por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+' · '+(destNombre(x)||nombre(S.categorias,x.categoria))}))));
+    S.gastos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'gasto',id:x.id,fecha:x.fecha,hora:x.hora,s:-1,imp:x.importe,txt:'Pago por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+' · '+(destNombre(x)||nombre(S.categorias,x.categoria))})),
+    S.abonos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'abono',id:x.id,fecha:x.fecha,hora:x.hora,s:1,imp:x.importe-(x.comision||0),txt:'Cobro de crédito · '+nombre(S.clientes,(S.creditos.find(c=>c.id===x.creditoId)||{}).clienteId)+(x.comision?' (bruto '+money(x.importe)+' − comisión '+money(x.comision)+')':'')}))));
   return `<div class="h"><h2>Cuenta bancaria</h2><div><button class="btn pri" data-act="nuevo" data-k="tarjeta">+ Movimiento</button> <button class="btn" data-act="ajusteTj">Ajustar saldo</button></div></div>${dateBar()}
   <div class="grid">${card('Saldo registrado',money(saldoTarjeta(S,f)),'big')}${card('Tarjeta del día (bruto)',money(d.ventaTj))}${card('Comisiones del día',money(d.comisiones))}${card('Transferencias del día',money(d.ventaTr))}${card('Pagos desde la cuenta',money(d.pagosTj+d.pagosTr))}</div>
   <p class="mut">Las ventas y pagos por tarjeta y por transferencia van a la misma cuenta. Es el saldo calculado con lo que has capturado, no el saldo real del banco. Si no coincide, usa “Ajustar saldo”.</p>
-  <h3>Movimientos del día</h3><div class="box">${movs.length?movs.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${x.hora} · ${esc(x.txt)}</span></div><div class="a">${x.man?acc('tarjeta',x.id):`<span class="mut">desde ${x.k==='venta'?'Ventas':'Gastos'}</span>`}</div></div>`).join(''):'<div class="empty">Sin movimientos en esta fecha.</div>'}</div>`;
+  <h3>Movimientos del día</h3><div class="box">${movs.length?movs.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${x.hora} · ${esc(x.txt)}</span></div><div class="a">${x.man?acc('tarjeta',x.id):`<span class="mut">desde ${x.k==='venta'?'Ventas':x.k==='abono'?'Cuentas por cobrar':'Gastos'}</span>`}</div></div>`).join(''):'<div class="empty">Sin movimientos en esta fecha.</div>'}</div>`;
 }
 function vAhorro(){
   const cajas=S.cajasAhorro;
@@ -741,7 +938,7 @@ function vAhorro(){
   const c=cajas.find(x=>x.id===UI.ahorroSel);const mv=ordenar(S.ahorroMovs.filter(x=>x.cajaId===c.id));
   return `<div class="h"><h2>Cajas de ahorro</h2><button class="btn pri" data-act="nuevoAhorro" data-c="${c.id}">+ Entrada / retiro</button></div>
   <div class="datebar">${cajas.map(x=>`<button class="btn ${x.id===c.id?'pri':''}" data-act="selAhorro" data-c="${x.id}">${esc(x.nombre)}${x.activo?'':' (inactiva)'}</button>`).join('')}</div>
-  <div class="grid">${card('Saldo de '+esc(c.nombre),money(saldoAhorro(S,c.id)),'big')}</div><h3>Historial</h3><div class="box">${mv.length?mv.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)}</b><span class="mut">${fmtF(x.fecha)} ${x.hora}${x.nota?' · '+esc(x.nota):''}${x.link?' · movido de/a caja':''}</span></div><div class="a">${acc('ahorro',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos todavía.</div>'}</div>`;
+  <div class="grid">${card('Saldo de '+esc(c.nombre),money(saldoAhorro(S,c.id)),'big')}</div><h3>Historial</h3><div class="box">${mv.length?mv.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)}</b><span class="mut">${fmtF(x.fecha)} ${x.hora}${x.nota?' · '+esc(x.nota):''}${x.cierre?' · apartado en el cierre de caja':x.origen==='retirado'?' · del dinero retirado':x.link?' · movido de/a la caja del día':''}</span></div><div class="a">${acc('ahorro',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos todavía.</div>'}</div>`;
 }
 /* --- Historial unificado --- */
 function movimientos(){
@@ -751,6 +948,8 @@ function movimientos(){
   S.cajaMovs.forEach(x=>o.push({k:'caja',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Caja · '+(x.tipo==='entrada'?'entrada':'retiro'),s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'ef',nota:x.nota||''}));
   S.tarjetaMovs.forEach(x=>o.push({k:'tarjeta',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Cuenta bancaria · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'tj',nota:x.nota||''}));
   S.ahorroMovs.forEach(x=>o.push({k:'ahorro',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Ahorro · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:nombre(S.cajasAhorro,x.cajaId),met:'',nota:x.nota||''}));
+  S.creditos.forEach(x=>o.push({k:'credito',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Venta a crédito',s:1,imp:x.importe,cat:'',dest:nombre(S.clientes,x.clienteId),met:'',nota:'Vence '+fmtF(x.vence)+(x.nota?' · '+x.nota:'')}));
+  S.abonos.forEach(x=>{const c=S.creditos.find(y=>y.id===x.creditoId)||{};o.push({k:'abono',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Cobro de crédito',s:1,imp:x.importe,cat:'',dest:nombre(S.clientes,c.clienteId),met:x.metodo,nota:[x.nota,x.comision&&'Comisión '+money(x.comision)].filter(Boolean).join(' · ')});});
   S.bolsaMovs.forEach(x=>o.push({k:'bolsa',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Dinero retirado · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'',nota:x.nota||''}));
   return ordenar(o);
 }
@@ -764,7 +963,7 @@ function vHistorial(){
   const F=`<div class="filters">
     <label class="f">Desde<input type="date" value="${h.desde}" data-change="h_desde"></label>
     <label class="f">Hasta<input type="date" value="${h.hasta}" data-change="h_hasta"></label>
-    <label class="f">Tipo<select data-change="h_tipo">${[['','Todos'],['venta','Ventas'],['gasto','Gastos y pagos'],['caja','Caja'],['tarjeta','Cuenta bancaria'],['ahorro','Ahorro'],['bolsa','Dinero retirado']].map(o=>`<option value="${o[0]}" ${h.tipo===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
+    <label class="f">Tipo<select data-change="h_tipo">${[['','Todos'],['venta','Ventas'],['credito','Ventas a crédito'],['abono','Cobros de créditos'],['gasto','Gastos y pagos'],['caja','Caja'],['tarjeta','Cuenta bancaria'],['ahorro','Ahorro'],['bolsa','Dinero retirado']].map(o=>`<option value="${o[0]}" ${h.tipo===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
     <label class="f">Categoría<select data-change="h_cat">${[['','Todas']].concat(S.categorias.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.cat===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
     <label class="f">Proveedor/tercero<select data-change="h_dest">${dests.map(o=>`<option value="${o[0]}" ${h.dest===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
     <label class="f">Método<select data-change="h_metodo">${[['','Todos']].concat(S.metodos.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.metodo===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label></div>`;
@@ -785,7 +984,7 @@ function datosRep(){
   return {a,b,filas,
     ventas:sum(filas.map(x=>x.d.ventaTotal)),comis:sum(filas.map(x=>x.d.comisiones)),gastos:sum(filas.map(x=>x.d.gastoTotal)),
     prov:sum(filas.map(x=>x.d.pagosProv)),ter:sum(filas.map(x=>x.d.pagosTer)),
-    porMetodo:S.metodos.map(m=>({n:m.nombre,t:sum(S.ventas.filter(v=>v.fecha>=a&&v.fecha<=b&&v.metodo===m.id).map(v=>v.importe))})).filter(x=>x.t>0),
+    porMetodo:S.metodos.map(m=>({n:m.nombre,t:sum(S.ventas.filter(v=>v.fecha>=a&&v.fecha<=b&&v.metodo===m.id).map(v=>v.importe))})).concat([{n:'A crédito (por cobrar)',t:sum(S.creditos.filter(c=>c.fecha>=a&&c.fecha<=b).map(c=>c.importe))}]).filter(x=>x.t>0),
     porCat:S.categorias.map(c=>({n:c.nombre,t:sum(gs.filter(g=>g.categoria===c.id).map(g=>g.importe))})).filter(x=>x.t>0)};
 }
 function vReportes(){
@@ -795,17 +994,17 @@ function vReportes(){
   <div class="grid">${card('Ventas',money(R.ventas))}${card('Gastos y pagos',money(R.gastos))}${card('Comisiones de la terminal',money(R.comis))}${card('Ventas − gastos − comisiones',`<span class="${R.ventas-R.gastos-R.comis<0?'neg':'pos'}">${money(R.ventas-R.gastos-R.comis)}</span>`)}${card('Pagos prov. / terceros',money(R.prov)+' / '+money(R.ter))}</div>
   <h3>Ventas por método</h3><div class="box">${R.porMetodo.map(x=>ln(esc(x.n),money(x.t))).join('')||'<div class="empty">Sin ventas en el periodo.</div>'}</div>
   <h3>Gastos por categoría</h3><div class="box">${R.porCat.map(x=>ln(esc(x.n),money(x.t))).join('')||'<div class="empty">Sin gastos en el periodo.</div>'}</div>
-  <h3>Saldos al cierre del periodo (${fmtF(R.b)})</h3><div class="box">${ln('Saldo registrado de la cuenta bancaria (tarjeta + transferencia)',money(saldoTarjeta(S,R.b)))}${ln('Dinero retirado en cierres (periodo)',money(sum(R.filas.map(x=>x.d.cierre?x.d.cierre.retirado:0))))}${ln('Dinero retirado disponible',money(calcBolsa(S,R.b)))}${S.cajasAhorro.map(c=>ln('Ahorro · '+esc(c.nombre),money(saldoAhorro(S,c.id,R.b)))).join('')}${R.a===R.b?ln('Efectivo esperado en caja',money(R.filas[0].d.esperado)):''}</div>
+  <h3>Saldos al cierre del periodo (${fmtF(R.b)})</h3><div class="box">${ln('Por cobrar a clientes (créditos pendientes)',money(saldoPorCobrar(S,R.b)))}${ln('Cobros de créditos recibidos en el periodo',money(sum(R.filas.map(x=>x.d.cobrosTotal))))}${ln('Saldo registrado de la cuenta bancaria (tarjeta + transferencia)',money(saldoTarjeta(S,R.b)))}${ln('Dinero retirado en cierres (periodo)',money(sum(R.filas.map(x=>x.d.cierre?x.d.cierre.retirado:0))))}${ln('Dinero retirado disponible',money(calcBolsa(S,R.b)))}${S.cajasAhorro.map(c=>ln('Ahorro · '+esc(c.nombre),money(saldoAhorro(S,c.id,R.b)))).join('')}${R.a===R.b?ln('Efectivo esperado en caja',money(R.filas[0].d.esperado)):''}</div>
   ${R.a!==R.b?`<h3>Detalle por día</h3><div class="tw"><table><tr><th>Día</th><th class="r">Ventas</th><th class="r">Efectivo</th><th class="r">Tarjeta</th><th class="r">Transf.</th><th class="r">Gastos</th><th class="r">Comisiones</th></tr>${R.filas.map(x=>`<tr><td>${fmtF(x.f)}</td><td class="r">${money(x.d.ventaTotal)}</td><td class="r">${money(x.d.ventaEf)}</td><td class="r">${money(x.d.ventaTj)}</td><td class="r">${money(x.d.ventaTr)}</td><td class="r">${money(x.d.gastoTotal)}</td><td class="r">${money(x.d.comisiones)}</td></tr>`).join('')}</table></div>`:''}`;
 }
 /* --- Catálogos --- */
 function descComision(m){if(!(m.comisionPct||m.comisionFijo))return 'sin comisión configurada';return 'comisión '+[m.comisionPct?m.comisionPct+'%':'',m.comisionFijo?money(m.comisionFijo):''].filter(Boolean).join(' + ')+(m.comisionIva?' + IVA':'');}
 function bloqueCat(tipo,titulo,tel){
-  return `<h3>${titulo}</h3><div class="box">${S[tipo].length?S[tipo].map(x=>`<div class="item"><div class="m"><b>${esc(x.nombre)} ${x.activo?'':'<span class="tag off">Inactivo</span>'}${tipo==='metodos'?` <span class="tag">${x.tipo}</span>${x.tipo==='tarjeta'?` <span class="tag">${descComision(x)}</span>`:''}`:''}</b><span class="mut">${tel?esc([x.telefono,x.notas].filter(Boolean).join(' · ')):''}${tipo==='cajasAhorro'?'Saldo '+money(saldoAhorro(S,x.id)):''}</span></div><div class="a"><button class="btn sm" data-act="editCat" data-t="${tipo}" data-id="${x.id}">Editar</button><button class="btn sm" data-act="togCat" data-t="${tipo}" data-id="${x.id}">${x.activo?'Desactivar':'Activar'}</button></div></div>`).join(''):'<div class="empty">Sin registros.</div>'}<div style="padding:8px 0"><button class="btn pri sm" data-act="nuevoCat" data-t="${tipo}">+ Agregar</button></div></div>`;
+  return `<h3>${titulo}</h3><div class="box">${S[tipo].length?S[tipo].map(x=>`<div class="item"><div class="m"><b>${esc(x.nombre)} ${x.activo?'':'<span class="tag off">Inactivo</span>'}${tipo==='metodos'?` <span class="tag">${x.tipo}</span>${x.tipo==='tarjeta'?` <span class="tag">${descComision(x)}</span>`:''}`:''}</b><span class="mut">${tel?esc([x.telefono,x.notas].filter(Boolean).join(' · ')):''}${tipo==='cajasAhorro'?'Saldo '+money(saldoAhorro(S,x.id)):''}${tipo==='clientes'?(x.diasCredito!=null?' · crédito '+x.diasCredito+' días':'')+(saldoCliente(S,x.id)>0?' · debe '+money(saldoCliente(S,x.id)):''):''}</span></div><div class="a"><button class="btn sm" data-act="editCat" data-t="${tipo}" data-id="${x.id}">Editar</button><button class="btn sm" data-act="togCat" data-t="${tipo}" data-id="${x.id}">${x.activo?'Desactivar':'Activar'}</button></div></div>`).join(''):'<div class="empty">Sin registros.</div>'}<div style="padding:8px 0"><button class="btn pri sm" data-act="nuevoCat" data-t="${tipo}">+ Agregar</button></div></div>`;
 }
 function vCatalogos(){
   return `<div class="h"><h2>Catálogos</h2></div><p class="mut">Los registros desactivados dejan de aparecer en los formularios nuevos, pero se conservan en el historial.</p>`+
-    bloqueCat('proveedores','Proveedores',true)+bloqueCat('terceros','Terceros / beneficiarios',true)+bloqueCat('categorias','Categorías de gastos')+bloqueCat('metodos','Métodos de pago')+bloqueCat('cajasAhorro','Cajas de ahorro');
+    bloqueCat('clientes','Clientes (venta a crédito)',true)+bloqueCat('proveedores','Proveedores',true)+bloqueCat('terceros','Terceros / beneficiarios',true)+bloqueCat('categorias','Categorías de gastos')+bloqueCat('metodos','Métodos de pago')+bloqueCat('cajasAhorro','Cajas de ahorro');
 }
 function vAjustes(){
   const lb=S.meta.lastBackup;
@@ -821,7 +1020,7 @@ function vAjustes(){
 function histCierres(){
   const ks=Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().reverse();
   if(!ks.length)return '';
-  return `<h3>Historial de cierres</h3><div class="tw"><table><tr><th>Fecha</th><th class="r">Esperado</th><th class="r">Contado</th><th class="r">Diferencia</th><th class="r">Se quedó</th><th class="r">Se llevó</th></tr>${ks.slice(0,60).map(k=>{const c=S.cajaDia[k].cierre;return `<tr><td><a href="#" data-act="verCierre" data-f="${k}">${fmtF(k)}</a></td><td class="r">${money(c.esperado)}</td><td class="r">${money(c.contado)}</td><td class="r ${c.diferencia<0?'neg':''}">${money(c.diferencia)}</td><td class="r">${money(c.fondo)}</td><td class="r">${money(c.retirado)}</td></tr>`}).join('')}</table></div><div style="margin-top:8px"><button class="btn sm" data-act="csvCierres">Exportar cierres a CSV</button></div>`;
+  return `<h3>Historial de cierres</h3><div class="tw"><table><tr><th>Fecha</th><th class="r">Esperado</th><th class="r">Contado</th><th class="r">Diferencia</th><th class="r">Se quedó</th><th class="r">A ahorro</th><th class="r">Se llevó</th></tr>${ks.slice(0,60).map(k=>{const c=S.cajaDia[k].cierre;return `<tr><td><a href="#" data-act="verCierre" data-f="${k}">${fmtF(k)}</a></td><td class="r">${money(c.esperado)}</td><td class="r">${money(c.contado)}</td><td class="r ${c.diferencia<0?'neg':''}">${money(c.diferencia)}</td><td class="r">${money(c.fondo)}</td><td class="r">${money(c.ahorro||0)}</td><td class="r">${money(c.retirado)}</td></tr>`}).join('')}</table></div><div style="margin-top:8px"><button class="btn sm" data-act="csvCierres">Exportar cierres a CSV</button></div>`;
 }
 function vBolsa(){
   const it=[];
@@ -836,7 +1035,7 @@ function vBolsa(){
   <p class="mut">Es el efectivo que sacas de la caja al cerrar. Cuando compres algo con ese dinero, al registrar el gasto elige “Dinero retirado” y se descuenta de aquí, no de la caja.</p>
   <h3>Movimientos</h3><div class="box">${it.length?it.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${fmtF(x.f)} ${x.h} · ${esc(x.txt)}</span></div><div class="a">${x.a}</div></div>`).join(''):'<div class="empty">Todavía no hay cierres de caja. Al cerrar la caja, lo que te llevas aparece aquí.</div>'}</div>`;
 }
-const VISTAS={bolsa:vBolsa,panel:vPanel,ventas:vVentas,gastos:vGastos,caja:vCaja,tarjeta:vTarjeta,ahorro:vAhorro,historial:vHistorial,reportes:vReportes,catalogos:vCatalogos,ajustes:vAjustes};
+const VISTAS={cobrar:vCobrar,bolsa:vBolsa,panel:vPanel,ventas:vVentas,gastos:vGastos,caja:vCaja,tarjeta:vTarjeta,ahorro:vAhorro,historial:vHistorial,reportes:vReportes,catalogos:vCatalogos,ajustes:vAjustes};
 function render(){renderNav();$('#view').innerHTML=VISTAS[UI.tab]();}
 
 /* ================= NUBE: sincronización en tiempo real (Firebase) ================= */
@@ -952,13 +1151,13 @@ function csv(filas){return '\ufeff'+filas.map(r=>r.map(c=>{c=String(c==null?'':c
 function filasMov(l){return [['Fecha','Hora','Tipo','Categoría','Destinatario','Método','Nota','Importe (MXN, + entra / − sale)']].concat(l.map(m=>[fmtF(m.fecha),m.hora,m.tipo,nombre(S.categorias,m.cat),m.dest,nombre(S.metodos,m.met),m.nota,(m.s<0?'-':'')+decimal(m.imp)]));}
 const ACT={
   ir:e=>ir(e.t),mas:()=>modal('Más secciones',`<div class="menu">${TABS.filter(t=>!BOTTOM.includes(t[0])).map(t=>`<button class="btn" data-act="ir" data-t="${t[0]}">${t[1]} ${t[2]}</button>`).join('')}</div>`),
-  cerrar,cierre:formCierre,reabrir:reabrirCierre,copiarCierre:()=>copiarCierre(UI.fecha),nuevoBolsa:()=>formBolsaMov(),
+  cerrar,cierre:formCierre,reabrir:reabrirCierre,copiarCierre:()=>copiarCierre(UI.fecha),nuevoBolsa:()=>formBolsaMov(),nuevoCredito:()=>formCredito(),cobrar:e=>formAbono(e.id),verCredito:e=>verCredito(e.id),filtroCobrar:e=>{UI.cobrarFiltro=e.v;render();},
   verCierre:e=>{UI.fecha=e.f;UI.tab='caja';render();window.scrollTo(0,0);},
-  csvCierres:()=>{const rows=[['Fecha','Esperado','Contado','Diferencia','Se quedó en caja','Se llevó','Nota']].concat(Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().map(k=>{const c=S.cajaDia[k].cierre;return [fmtF(k),decimal(c.esperado),decimal(c.contado),(c.diferencia<0?'-':'')+decimal(Math.abs(c.diferencia)),decimal(c.fondo),decimal(c.retirado),c.nota||'']}));descargar('cierres-suchef-'+hoy()+'.csv',csv(rows),'text/csv;charset=utf-8');},
+  csvCierres:()=>{const rows=[['Fecha','Esperado','Contado','Diferencia','Se quedó en caja','A ahorro','Se llevó','Nota']].concat(Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().map(k=>{const c=S.cajaDia[k].cierre;return [fmtF(k),decimal(c.esperado),decimal(c.contado),(c.diferencia<0?'-':'')+decimal(Math.abs(c.diferencia)),decimal(c.fondo),decimal(c.ahorro||0),decimal(c.retirado),c.nota||'']}));descargar('cierres-suchef-'+hoy()+'.csv',csv(rows),'text/csv;charset=utf-8');},
   dia:e=>{UI.fecha=addDays(UI.fecha,+e.n);render();},hoy:()=>{UI.fecha=hoy();render();},
   nuevo:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov})[e.k](),
-  edit:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov,ahorro:formAhorroMov,bolsa:formBolsaMov})[e.k](e.id),
-  del:e=>borrarRec(e.k,e.id),saldoini:formSaldoInicial,conteo:formConteo,ajusteTj:formAjusteTarjeta,
+  edit:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov,ahorro:formAhorroMov,bolsa:formBolsaMov,credito:formCredito,abono:editarAbono})[e.k](e.id),
+  del:e=>{borrarRec(e.k,e.id);if((e.k==='abono'||e.k==='credito')&&$('#modal').classList.contains('open'))cerrar();},saldoini:formSaldoInicial,conteo:formConteo,ajusteTj:formAjusteTarjeta,
   nuevoAhorro:e=>formAhorroMov(null,e.c),selAhorro:e=>{UI.ahorroSel=e.c;render();},
   nuevoCat:e=>formCat(e.t),editCat:e=>formCat(e.t,e.id),togCat:e=>toggleCat(e.t,e.id),
   limpiaHist:()=>{UI.hist={desde:'',hasta:'',tipo:'',cat:'',dest:'',metodo:''};render();},togBit:()=>{UI.bitacora=!UI.bitacora;render();},
