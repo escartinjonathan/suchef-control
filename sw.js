@@ -1,5 +1,5 @@
 // Cambia el número de versión cada vez que actualices index.html
-const CACHE = 'suchef-control-v8';
+const CACHE = 'suchef-control-v9';
 const ARCHIVOS = ['./', './index.html', './manifest.json', './nube-config.js', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

@@ -159,6 +159,7 @@ function estadoBase(){
     metodos:[{id:'ef',nombre:'Efectivo',tipo:'efectivo',activo:true},{id:'tj',nombre:'Tarjeta',tipo:'tarjeta',activo:true},{id:'tr',nombre:'Transferencia',tipo:'transferencia',activo:true}],
     categorias:['Proveedores','Terceros','Nómina','Renta','Servicios','Insumos','Mantenimiento','Otros'].map((n,i)=>({id:'c'+i,nombre:n,activo:true})),
     proveedores:[],terceros:[],cajasAhorro:[],
+    traspasos:[],   // cambios de dinero entre caja, dinero retirado y cuenta bancaria
     clientes:[],creditos:[],abonos:[],   // cuentas por cobrar: clientes, ventas a crédito y sus pagos
     ventas:[],gastos:[],cajaMovs:[],tarjetaMovs:[],ahorroMovs:[],bolsaMovs:[],
     cajaDia:{},          // { 'YYYY-MM-DD': {saldoInicial, contado} }
@@ -199,11 +200,14 @@ function calcDia(S,f){
   const gastoTotal=sum(gastos.map(g=>g.importe));
   const entradas=sum(cm.filter(x=>x.tipo==='entrada').map(x=>x.importe));
   const retiros=sum(cm.filter(x=>x.tipo==='retiro').map(x=>x.importe));
+  const tr=S.traspasos.filter(x=>x.fecha===f);
+  const sumTr=(k,v)=>sum(tr.filter(x=>x[k]===v).map(x=>x.importe));
+  const trCajaEntra=sumTr('destino','caja'),trCajaSale=sumTr('origen','caja'),trRetEntra=sumTr('destino','retirado'),trRetSale=sumTr('origen','retirado'),trBancoEntra=sumTr('destino','banco'),trBancoSale=sumTr('origen','banco');
   const ini=saldoInicialDe(S,f);
-  const esperado=ini.valor+ventaEf+cobrosEf+entradas-pagosEf-retiros;
+  const esperado=ini.valor+ventaEf+cobrosEf+entradas+trCajaEntra-pagosEf-retiros-trCajaSale;
   const contado=(S.cajaDia[f]&&S.cajaDia[f].contado!=null)?S.cajaDia[f].contado:null;
   const cierre=(S.cajaDia[f]&&S.cajaDia[f].cierre)||null;
-  return {ventaTotal,comisiones,ventaCredito,cobrosEf,cobrosBanco,cobrosTotal:sum(abD.map(a=>a.importe)),ventaEf,ventaTj,ventaTr,porMetodo,pagosEf,pagosEfRet,pagosTj,pagosTr,pagosProv,pagosTer,gastoTotal,
+  return {ventaTotal,comisiones,trCajaEntra,trCajaSale,trRetEntra,trRetSale,trBancoEntra,trBancoSale,ventaCredito,cobrosEf,cobrosBanco,cobrosTotal:sum(abD.map(a=>a.importe)),ventaEf,ventaTj,ventaTr,porMetodo,pagosEf,pagosEfRet,pagosTj,pagosTr,pagosProv,pagosTer,gastoTotal,
           entradas,retiros,saldoInicial:ini.valor,saldoInicialManual:ini.manual,esperado,contado,
           diferencia:contado==null?null:contado-esperado,cierre,cierreDesactualizado:!!cierre&&cierre.esperado!==esperado};
 }
@@ -231,7 +235,7 @@ function saldoTarjeta(S,hasta){
   const g=sum(S.gastos.filter(x=>x.fecha<=hasta&&esBanco(S,x.metodo)).map(x=>x.importe));
   const e=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='entrada').map(x=>x.importe));
   const s=sum(S.tarjetaMovs.filter(x=>x.fecha<=hasta&&x.tipo==='salida').map(x=>x.importe));
-  return v+e-g-s;
+  return v+e-g-s+sum(S.traspasos.filter(x=>x.fecha<=hasta&&x.destino==='banco').map(x=>x.importe))-sum(S.traspasos.filter(x=>x.fecha<=hasta&&x.origen==='banco').map(x=>x.importe));
 }
 function saldoAhorro(S,cajaId,hasta){
   hasta=hasta||'9999-12-31';
@@ -244,7 +248,7 @@ function calcBolsa(S,hasta){
   const cierres=Object.keys(S.cajaDia).filter(k=>k<=hasta&&S.cajaDia[k].cierre).map(k=>S.cajaDia[k].cierre.retirado);
   const man=S.bolsaMovs.filter(x=>x.fecha<=hasta);
   const gs=S.gastos.filter(g=>g.fecha<=hasta&&g.origen==='retirado'&&tipoMetodo(S,g.metodo)==='efectivo');
-  return sum(cierres)+sum(man.filter(x=>x.tipo==='entrada').map(x=>x.importe))-sum(man.filter(x=>x.tipo==='salida').map(x=>x.importe))-sum(gs.map(g=>g.importe));
+  return sum(cierres)+sum(man.filter(x=>x.tipo==='entrada').map(x=>x.importe))-sum(man.filter(x=>x.tipo==='salida').map(x=>x.importe))-sum(gs.map(g=>g.importe))+sum(S.traspasos.filter(x=>x.fecha<=hasta&&x.destino==='retirado').map(x=>x.importe))-sum(S.traspasos.filter(x=>x.fecha<=hasta&&x.origen==='retirado').map(x=>x.importe));
 }
 /* Sobrante del dinero retirado de días anteriores (sin contar lo que se retira en el cierre del propio día f). */
 function bolsaSobrante(S,f){
@@ -399,6 +403,25 @@ function correrPruebas(){
   S3.cajaDia[h2]={contado:140000,cierre:{esperado:140000,contado:140000,diferencia:0,fondo:100000,retirado:40000}};
   t('Día 2: el sobrante no cambia al cerrar',bolsaSobrante(S3,h2),38000);
   t('Día 2: total retirado = sobrante + lo de hoy',calcBolsa(S3,h2),78000);
+  /* --- Cambios de dinero (traspasos) --- */
+  const Tz=estadoBase(),u1='2026-08-01',u2='2026-08-02';
+  Tz.cajaDia[u1]={contado:100000,cierre:{esperado:100000,contado:100000,diferencia:0,fondo:50000,retirado:50000}};
+  Tz.ventas.push(mk({fecha:u1,importe:100000,metodo:'tj'}));
+  t('Base: dinero retirado',calcBolsa(Tz,u2),50000);
+  t('Base: cuenta bancaria',saldoTarjeta(Tz),100000);
+  t('Base: efectivo esperado del día 2',calcDia(Tz,u2).esperado,50000);
+  Tz.traspasos.push(mk({fecha:u2,origen:'retirado',destino:'caja',importe:20000}));
+  t('Retirado → caja: sube el efectivo esperado',calcDia(Tz,u2).esperado,70000);
+  t('Retirado → caja: baja el dinero retirado',calcBolsa(Tz,u2),30000);
+  Tz.traspasos.push(mk({fecha:u2,origen:'banco',destino:'retirado',importe:30000}));
+  t('Cajero (cuenta → retirado): baja la cuenta',saldoTarjeta(Tz),70000);
+  t('Cajero (cuenta → retirado): sube el dinero retirado',calcBolsa(Tz,u2),60000);
+  Tz.traspasos.push(mk({fecha:u2,origen:'caja',destino:'banco',importe:10000}));
+  t('Caja → cuenta (depósito): baja el efectivo esperado',calcDia(Tz,u2).esperado,60000);
+  t('Caja → cuenta (depósito): sube la cuenta',saldoTarjeta(Tz),80000);
+  t('El dinero total no cambia con los cambios de dinero',calcDia(Tz,u2).esperado+calcBolsa(Tz,u2)+saldoTarjeta(Tz),60000+60000+80000);
+  t('Los cambios de dinero no cuentan como venta ni gasto',calcDia(Tz,u2).ventaTotal+calcDia(Tz,u2).gastoTotal,0);
+  t('Un cambio de otro día no afecta la caja de hoy',calcDia(Tz,'2026-08-03').esperado-calcDia(Tz,'2026-08-03').saldoInicial,0);
   /* --- Ahorro tomado de la venta diaria --- */
   const Z=estadoBase(),z1='2026-07-01',z2='2026-07-02';
   Z.cajasAhorro.push({id:'a1',nombre:'Ahorro',activo:true});
@@ -539,8 +562,8 @@ const fechaHora=(r)=>`<div class="row2">${inp('Fecha','fecha','date',r?r.fecha:U
 function valFH(d){if(!d.fecha||!d.hora)return 'Falta la fecha o la hora.';return null;}
 
 /* ================= GUARDAR / BORRAR ================= */
-const COLL={venta:'ventas',gasto:'gastos',caja:'cajaMovs',tarjeta:'tarjetaMovs',ahorro:'ahorroMovs',bolsa:'bolsaMovs',credito:'creditos',abono:'abonos'};
-const KIND_TXT={venta:'venta',gasto:'gasto',caja:'movimiento de caja',tarjeta:'movimiento de la cuenta bancaria',ahorro:'movimiento de ahorro',bolsa:'ajuste de dinero retirado',credito:'venta a crédito',abono:'pago de crédito'};
+const COLL={venta:'ventas',gasto:'gastos',caja:'cajaMovs',tarjeta:'tarjetaMovs',ahorro:'ahorroMovs',bolsa:'bolsaMovs',credito:'creditos',abono:'abonos',traspaso:'traspasos'};
+const KIND_TXT={venta:'venta',gasto:'gasto',caja:'movimiento de caja',tarjeta:'movimiento de la cuenta bancaria',ahorro:'movimiento de ahorro',bolsa:'ajuste de dinero retirado',credito:'venta a crédito',abono:'pago de crédito',traspaso:'cambio de dinero'};
 function guardarRec(kind,id,datos){
   const arr=S[COLL[kind]];let r;
   if(id){r=arr.find(x=>x.id===id);Object.assign(r,datos,{editado:new Date().toISOString()});bit('Editó',`${KIND_TXT[kind]} ${money(r.importe)} del ${fmtF(r.fecha)}`);}
@@ -782,13 +805,13 @@ function vPanel(){
   const ahorros=S.cajasAhorro.filter(c=>c.activo||saldoAhorro(S,c.id)!==0).map(c=>{
     const mv=S.ahorroMovs.filter(m=>m.cajaId===c.id&&m.fecha===f);const e=sum(mv.filter(m=>m.tipo==='entrada').map(m=>m.importe)),s=sum(mv.filter(m=>m.tipo==='retiro').map(m=>m.importe));
     return ln(esc(c.nombre)+`<span class="mut"> · hoy +${money(e)} / −${money(s)}</span>`,`<b>${money(saldoAhorro(S,c.id,f))}</b>`);}).join('');
-  return `${aviso}${avisoCxc}<div class="h"><h2>Panel del día</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Venta</button> <button class="btn" data-act="nuevo" data-k="gasto">+ Gasto</button> <button class="btn" data-act="nuevo" data-k="caja">+ Caja</button> <button class="btn ver" data-act="nuevoCredito">🤝 Venta a crédito</button></div></div>${dateBar()}
+  return `${aviso}${avisoCxc}<div class="h"><h2>Panel del día</h2><div><button class="btn pri" data-act="nuevo" data-k="venta">+ Venta</button> <button class="btn" data-act="nuevo" data-k="gasto">+ Gasto</button> <button class="btn" data-act="nuevo" data-k="caja">+ Caja</button> <button class="btn ver" data-act="nuevoCredito">🤝 Venta a crédito</button> <button class="btn" data-act="nuevoTraspaso">🔄 Cambio de dinero</button></div></div>${dateBar()}
   <div class="grid">${card('Venta total del día',money(d.ventaTotal),'big')}${metodos}
   ${d.ventaCredito?card('A crédito (por cobrar)',money(d.ventaCredito)):''}${d.cobrosTotal?card('Cobros de créditos del día',money(d.cobrosTotal)):''}${card('Pagos a proveedores',money(d.pagosProv))}${card('Pagos a terceros',money(d.pagosTer))}${card('Total de gastos y pagos',money(d.gastoTotal))}</div>
   <h3>Caja (efectivo físico)</h3><div class="box">
    ${ln(`Saldo inicial ${d.saldoInicialManual?'':'<span class="mut">(sugerido)</span>'} <button class="btn sm" data-act="saldoini">Editar</button>`,money(d.saldoInicial))}
-   ${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}
-   ${ln('− Pagos en efectivo',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}
+   ${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}${d.trCajaEntra?ln('+ Cambios de dinero hacia la caja',money(d.trCajaEntra)):''}
+   ${ln('− Pagos en efectivo',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${d.trCajaSale?ln('− Cambios de dinero desde la caja',money(d.trCajaSale)):''}
    ${ln('Dinero esperado en caja',money(d.esperado),'tot')}
    ${ln('Dinero contado en caja <button class="btn sm" data-act="conteo">Registrar conteo</button>',d.contado==null?'—':money(d.contado))}
    ${ln('Diferencia',difTxt,'tot')}</div>
@@ -796,10 +819,10 @@ function vPanel(){
   <h3>Cierre y dinero retirado</h3><div class="box">
    ${d.cierre?ln('Se quedó en caja (inicia mañana)',money(d.cierre.fondo))+ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,f)))+(d.cierre.ahorro?ln('Se apartó a ahorro',money(d.cierre.ahorro)):'')+ln('Nos llevamos hoy de la caja',money(d.cierre.retirado))+ln('Cierre','<span class="ok">✔ Caja cerrada</span> <button class="btn sm" data-act="ir" data-t="caja">Ver</button>'):ln('Cierre del día','<button class="btn pri sm" data-act="cierre">Cerrar caja</button>')}
    ${d.cierre?'':ln('Dinero retirado que traemos de ayer (sobrante)',money(calcBolsa(S,addDays(f,-1))))}
-   ${d.pagosEfRet?ln('Pagado hoy con dinero retirado',money(d.pagosEfRet)):''}
+   ${d.trRetEntra?ln('+ Cambios de dinero hacia lo retirado',money(d.trRetEntra)):''}${d.trRetSale?ln('− Cambios de dinero desde lo retirado',money(d.trRetSale)):''}${d.pagosEfRet?ln('Pagado hoy con dinero retirado',money(d.pagosEfRet)):''}
    ${ln(d.cierre?'Total dinero retirado (sobrante + lo de hoy)':'Dinero retirado disponible','<b>'+money(calcBolsa(S,f))+'</b> <button class="btn sm" data-act="ir" data-t="bolsa">Ver</button>','tot')}</div>
   ${d.cierreDesactualizado?'<div class="warn" style="margin-top:10px">⚠️ Cambió algo después del cierre de este día (esperado al cerrar '+money(d.cierre.esperado)+', ahora '+money(d.esperado)+'). Edita el cierre en Caja.</div>':''}
-  <h3>Cuenta bancaria (tarjeta + transferencia)</h3><div class="box">${ln('Ventas con tarjeta del día',money(d.ventaTj))}${ln('Ventas por transferencia del día',money(d.ventaTr))}${ln('Cobros brutos del día (tarjeta + transf.)',money(d.ventaTj+d.ventaTr))}${d.comisiones?ln('− Comisión de la terminal',money(d.comisiones)):''}${d.cobrosBanco?ln('Cobros de créditos (tarjeta/transf.)',money(d.cobrosBanco)):''}${ln('Cobros netos a la cuenta',money(d.ventaTj+d.ventaTr+d.cobrosBanco-d.comisiones),'tot')}${ln('Pagos del día desde la cuenta (tarjeta/transf.)',money(d.pagosTj+d.pagosTr))}${ln('Saldo registrado a esta fecha',money(saldoTarjeta(S,f)),'tot')}</div>
+  <h3>Cuenta bancaria (tarjeta + transferencia)</h3><div class="box">${ln('Ventas con tarjeta del día',money(d.ventaTj))}${ln('Ventas por transferencia del día',money(d.ventaTr))}${ln('Cobros brutos del día (tarjeta + transf.)',money(d.ventaTj+d.ventaTr))}${d.comisiones?ln('− Comisión de la terminal',money(d.comisiones)):''}${d.cobrosBanco?ln('Cobros de créditos (tarjeta/transf.)',money(d.cobrosBanco)):''}${ln('Cobros netos a la cuenta',money(d.ventaTj+d.ventaTr+d.cobrosBanco-d.comisiones),'tot')}${ln('Pagos del día desde la cuenta (tarjeta/transf.)',money(d.pagosTj+d.pagosTr))}${d.trBancoEntra?ln('+ Cambios de dinero hacia la cuenta',money(d.trBancoEntra)):''}${d.trBancoSale?ln('− Cambios de dinero desde la cuenta (cajero, etc.)',money(d.trBancoSale)):''}${ln('Saldo registrado a esta fecha',money(saldoTarjeta(S,f)),'tot')}</div>
   <h3>Cuentas por cobrar</h3><div class="box">${ln('Total por cobrar a clientes',money(cx.total)+' <button class="btn sm" data-act="ir" data-t="cobrar">Ver</button>','tot')}${cx.vencido?ln('Vencido',`<span class="neg">${money(cx.vencido)}</span>`):''}</div>
   <h3>Cajas de ahorro</h3><div class="box">${ahorros||'<div class="empty">Aún no hay cajas de ahorro. Créalas en Catálogos.</div>'}</div>`;
 }
@@ -845,6 +868,37 @@ function formCredito(id){
   fm.elements['fecha'].addEventListener('input',info);
   fm.elements['cliente'].addEventListener('change',()=>{const c=S.clientes.find(x=>x.id===fm.elements['cliente'].value);if(c&&c.diasCredito!=null&&!manualDias)fm.elements['dias'].value=c.diasCredito;info();});
   info();
+}
+const NOMB={caja:'Efectivo de la caja del día',retirado:'Dinero retirado',banco:'Cuenta bancaria'};
+function dispTraspaso(lugar,f){return lugar==='caja'?calcDia(S,f).esperado:lugar==='retirado'?calcBolsa(S,f):saldoTarjeta(S,f);}
+function formTraspaso(id,o0,d0){
+  const r=id?S.traspasos.find(x=>x.id===id):null;
+  const lugares=[['caja',NOMB.caja],['retirado',NOMB.retirado+' (el que nos llevamos)'],['banco',NOMB.banco]];
+  const presets=[['retirado','caja','Retirado → Caja'],['banco','retirado','Cuenta → Retirado (cajero)'],['caja','retirado','Caja → Retirado'],['caja','banco','Caja → Cuenta (depósito)'],['retirado','banco','Retirado → Cuenta (depósito)'],['banco','caja','Cuenta → Caja']];
+  modal(r?'Editar cambio de dinero':'🔄 Cambio de dinero',
+    `<p class="mut">Mueve dinero de un lugar a otro. No cuenta como venta ni como gasto.</p>`+
+    `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${presets.map(p=>`<button type="button" class="btn sm" data-preset="${p[0]}|${p[1]}">${p[2]}</button>`).join('')}</div>`+
+    fechaHora(r)+sel('Sale de','origen',lugares,r?r.origen:(o0||'retirado'))+sel('Entra a','destino',lugares,r?r.destino:(d0||'caja'))+
+    inpMonto('importe',r&&r.importe)+`<p class="mut" id="trInfo" style="margin:-6px 0 12px"></p>`+inp('Nota (opcional)','nota','text',r&&r.nota),
+    d=>{const e=valFH(d);if(e)return e;const imp=parseMonto(d.importe);if(!imp)return 'Escribe un importe mayor a cero, por ejemplo 500.00';
+      if(d.origen===d.destino)return 'Elige lugares distintos: de dónde sale y a dónde entra.';
+      guardarRec('traspaso',id,{fecha:d.fecha,hora:d.hora,origen:d.origen,destino:d.destino,importe:imp,nota:d.nota.trim()});UI.fecha=d.fecha;render();});
+  const fm=$('#mf');
+  const info=()=>{
+    const o=fm.elements['origen'].value,dd=fm.elements['destino'].value,f=fm.elements['fecha'].value||UI.fecha,imp=parseMonto(fm.elements['importe'].value)||0;
+    const atras=(r&&r.origen===o&&(o==='caja'?r.fecha===f:r.fecha<=f))?r.importe:0;     // al editar, no contar el propio cambio
+    const disp=dispTraspaso(o,f)+atras;
+    $('#trInfo').innerHTML=o===dd?'<span class="neg">Elige lugares distintos.</span>':`Registrado en ${NOMB[o]}: <b>${money(disp)}</b>`+(imp>disp?' <span class="neg">· ⚠️ es más de lo registrado; continúa si el dato real es otro.</span>':'');
+  };
+  fm.querySelectorAll('[data-preset]').forEach(b=>b.addEventListener('click',()=>{const [o,dd]=b.dataset.preset.split('|');fm.elements['origen'].value=o;fm.elements['destino'].value=dd;info();}));
+  ['origen','destino'].forEach(n=>fm.elements[n].addEventListener('change',info));
+  ['fecha','importe'].forEach(n=>fm.elements[n].addEventListener('input',info));
+  info();
+}
+function listaTraspasos(f,lugar){
+  const l=ordenar(S.traspasos.filter(x=>x.fecha===f&&(x.origen===lugar||x.destino===lugar)));
+  if(!l.length)return '';
+  return `<h3>Cambios de dinero del día</h3><div class="box">${l.map(x=>`<div class="item"><div class="m"><b class="${x.destino===lugar?'pos':'neg'}">${x.destino===lugar?'+':'−'} ${money(x.importe)}</b><span class="mut">${x.hora} · ${NOMB[x.origen]} → ${NOMB[x.destino]}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('traspaso',x.id)}</div></div>`).join('')}</div>`;
 }
 function editarAbono(id){formAbono(null,id);}
 function formAbono(creditoId,id){
@@ -912,12 +966,12 @@ function vGastos(){
 function vCaja(){
   const f=UI.fecha,d=calcDia(S,f);const l=ordenar(S.cajaMovs.filter(x=>x.fecha===f));
   const lleva=d.saldoInicial+d.ventaEf;
-  return `<div class="h"><h2>Caja y efectivo</h2><button class="btn pri" data-act="nuevo" data-k="caja">+ Entrada / retiro</button></div>${dateBar()}
+  return `<div class="h"><h2>Caja y efectivo</h2><div><button class="btn pri" data-act="nuevo" data-k="caja">+ Entrada / retiro</button> <button class="btn" data-act="nuevoTraspaso" data-o="retirado" data-d="caja">🔄 Cambio de dinero</button></div></div>${dateBar()}
   <div class="grid">${card('Efectivo esperado',money(d.esperado),'big')}${card('Quedó en caja + ventas en efectivo',money(lleva)+'<div style="font-weight:400;font-size:12px;color:#6b6762;font-family:Lato,sans-serif">'+money(d.saldoInicial)+' (quedó) + '+money(d.ventaEf)+' (ventas)</div>')}${card('Contado',d.cierre?money(d.cierre.contado):(d.contado==null?'—':money(d.contado)))}</div>
   <div style="margin:12px 0"><button class="btn" data-act="saldoini">Saldo inicial</button> <button class="btn ver" data-act="conteo">Conteo final</button></div>
   ${d.cierre?`<h3>Cierre del día</h3>${d.cierreDesactualizado?`<div class="warn">⚠️ Hubo cambios después del cierre: esperado al cerrar ${money(d.cierre.esperado)}, ahora ${money(d.esperado)}. Edita el cierre para actualizarlo.</div>`:''}<div class="box">${ln('Esperado al cerrar',money(d.cierre.esperado))}${ln('Contado',money(d.cierre.contado))}${ln('Diferencia',difHtml(d.cierre.diferencia))}${ln('Se queda en caja (mañana inicia con esto)',money(d.cierre.fondo),'tot')}${ln('Sobrante del dinero retirado anterior',money(bolsaSobrante(S,UI.fecha)))}${d.cierre.ahorro?ln('Se apartó a ahorro',money(d.cierre.ahorro)):''}${ln('Nos llevamos hoy de la caja',money(d.cierre.retirado),'tot')}${ln('Total dinero retirado (sobrante + lo de hoy)',money(calcBolsa(S,UI.fecha)),'tot')}${d.cierre.nota?ln('Nota',esc(d.cierre.nota)):''}<div style="padding:8px 0;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" data-act="cierre">Editar cierre</button><button class="btn sm ver" data-act="copiarCierre">Copiar resumen</button><button class="btn sm del" data-act="reabrir">Reabrir caja</button></div></div>`:`<div style="margin:0 0 12px"><button class="btn pri" data-act="cierre">🔒 Cerrar caja del día</button> <span class="mut">Define cuánto se queda y cuánto se lleva.</span></div>`}
-  <div class="box">${ln('Saldo inicial',money(d.saldoInicial))}${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}${ln('− Pagos en efectivo (de la caja)',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${ln('= Efectivo esperado',money(d.esperado),'tot')}</div>
-  <h3>Entradas y retiros del día</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)} · ${x.tipo==='entrada'?'Entrada':'Retiro'}</b><span class="mut">${x.hora}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('caja',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos de efectivo en esta fecha.</div>'}</div>${d.pagosEfRet?`<p class="mut">Este día también se pagaron ${money(d.pagosEfRet)} con dinero retirado (no afectan la caja).</p>`:''}${histCierres()}`;
+  <div class="box">${ln('Saldo inicial',money(d.saldoInicial))}${ln('+ Ventas en efectivo',money(d.ventaEf))}${ln('+ Entradas de efectivo',money(d.entradas))}${d.cobrosEf?ln('+ Cobros de créditos en efectivo',money(d.cobrosEf)):''}${d.trCajaEntra?ln('+ Cambios de dinero hacia la caja',money(d.trCajaEntra)):''}${ln('− Pagos en efectivo (de la caja)',money(d.pagosEf))}${ln('− Retiros de efectivo',money(d.retiros))}${d.trCajaSale?ln('− Cambios de dinero desde la caja',money(d.trCajaSale)):''}${ln('= Efectivo esperado',money(d.esperado),'tot')}</div>
+  <h3>Entradas y retiros del día</h3><div class="box">${l.length?l.map(x=>`<div class="item"><div class="m"><b class="${x.tipo==='entrada'?'pos':'neg'}">${x.tipo==='entrada'?'+':'−'} ${money(x.importe)} · ${x.tipo==='entrada'?'Entrada':'Retiro'}</b><span class="mut">${x.hora}${x.nota?' · '+esc(x.nota):''}</span></div><div class="a">${acc('caja',x.id)}</div></div>`).join(''):'<div class="empty">Sin movimientos de efectivo en esta fecha.</div>'}</div>${listaTraspasos(f,'caja')}${d.pagosEfRet?`<p class="mut">Este día también se pagaron ${money(d.pagosEfRet)} con dinero retirado (no afectan la caja).</p>`:''}${histCierres()}`;
 }
 function vTarjeta(){
   const f=UI.fecha,d=calcDia(S,f);
@@ -926,10 +980,10 @@ function vTarjeta(){
     S.ventas.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'venta',id:x.id,fecha:x.fecha,hora:x.hora,s:1,imp:x.importe-(x.comision||0),txt:'Venta por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+(x.comision?' (bruta '+money(x.importe)+' − comisión '+money(x.comision)+')':'')+(x.nota?' · '+x.nota:'')})),
     S.gastos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'gasto',id:x.id,fecha:x.fecha,hora:x.hora,s:-1,imp:x.importe,txt:'Pago por '+(tipoMetodo(S,x.metodo)==='transferencia'?'transferencia':'tarjeta')+' · '+(destNombre(x)||nombre(S.categorias,x.categoria))})),
     S.abonos.filter(x=>x.fecha===f&&esBanco(S,x.metodo)).map(x=>({k:'abono',id:x.id,fecha:x.fecha,hora:x.hora,s:1,imp:x.importe-(x.comision||0),txt:'Cobro de crédito · '+nombre(S.clientes,(S.creditos.find(c=>c.id===x.creditoId)||{}).clienteId)+(x.comision?' (bruto '+money(x.importe)+' − comisión '+money(x.comision)+')':'')}))));
-  return `<div class="h"><h2>Cuenta bancaria</h2><div><button class="btn pri" data-act="nuevo" data-k="tarjeta">+ Movimiento</button> <button class="btn" data-act="ajusteTj">Ajustar saldo</button></div></div>${dateBar()}
+  return `<div class="h"><h2>Cuenta bancaria</h2><div><button class="btn pri" data-act="nuevo" data-k="tarjeta">+ Movimiento</button> <button class="btn" data-act="ajusteTj">Ajustar saldo</button> <button class="btn" data-act="nuevoTraspaso" data-o="banco" data-d="retirado">🔄 Cambio de dinero</button></div></div>${dateBar()}
   <div class="grid">${card('Saldo registrado',money(saldoTarjeta(S,f)),'big')}${card('Tarjeta del día (bruto)',money(d.ventaTj))}${card('Comisiones del día',money(d.comisiones))}${card('Transferencias del día',money(d.ventaTr))}${card('Pagos desde la cuenta',money(d.pagosTj+d.pagosTr))}</div>
   <p class="mut">Las ventas y pagos por tarjeta y por transferencia van a la misma cuenta. Es el saldo calculado con lo que has capturado, no el saldo real del banco. Si no coincide, usa “Ajustar saldo”.</p>
-  <h3>Movimientos del día</h3><div class="box">${movs.length?movs.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${x.hora} · ${esc(x.txt)}</span></div><div class="a">${x.man?acc('tarjeta',x.id):`<span class="mut">desde ${x.k==='venta'?'Ventas':x.k==='abono'?'Cuentas por cobrar':'Gastos'}</span>`}</div></div>`).join(''):'<div class="empty">Sin movimientos en esta fecha.</div>'}</div>`;
+  <h3>Movimientos del día</h3><div class="box">${movs.length?movs.map(x=>`<div class="item"><div class="m"><b class="${x.s>0?'pos':'neg'}">${x.s>0?'+':'−'} ${money(x.imp)}</b><span class="mut">${x.hora} · ${esc(x.txt)}</span></div><div class="a">${x.man?acc('tarjeta',x.id):`<span class="mut">desde ${x.k==='venta'?'Ventas':x.k==='abono'?'Cuentas por cobrar':'Gastos'}</span>`}</div></div>`).join(''):'<div class="empty">Sin movimientos en esta fecha.</div>'}</div>${listaTraspasos(f,'banco')}`;
 }
 function vAhorro(){
   const cajas=S.cajasAhorro;
@@ -951,6 +1005,7 @@ function movimientos(){
   S.creditos.forEach(x=>o.push({k:'credito',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Venta a crédito',s:1,imp:x.importe,cat:'',dest:nombre(S.clientes,x.clienteId),met:'',nota:'Vence '+fmtF(x.vence)+(x.nota?' · '+x.nota:'')}));
   S.abonos.forEach(x=>{const c=S.creditos.find(y=>y.id===x.creditoId)||{};o.push({k:'abono',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Cobro de crédito',s:1,imp:x.importe,cat:'',dest:nombre(S.clientes,c.clienteId),met:x.metodo,nota:[x.nota,x.comision&&'Comisión '+money(x.comision)].filter(Boolean).join(' · ')});});
   S.bolsaMovs.forEach(x=>o.push({k:'bolsa',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Dinero retirado · '+x.tipo,s:x.tipo==='entrada'?1:-1,imp:x.importe,cat:'',dest:'',met:'',nota:x.nota||''}));
+  S.traspasos.forEach(x=>o.push({k:'traspaso',id:x.id,fecha:x.fecha,hora:x.hora,tipo:'Cambio de dinero',s:0,imp:x.importe,cat:'',dest:NOMB[x.origen]+' → '+NOMB[x.destino],met:'',nota:x.nota||''}));
   return ordenar(o);
 }
 function histFiltrado(){
@@ -963,12 +1018,12 @@ function vHistorial(){
   const F=`<div class="filters">
     <label class="f">Desde<input type="date" value="${h.desde}" data-change="h_desde"></label>
     <label class="f">Hasta<input type="date" value="${h.hasta}" data-change="h_hasta"></label>
-    <label class="f">Tipo<select data-change="h_tipo">${[['','Todos'],['venta','Ventas'],['credito','Ventas a crédito'],['abono','Cobros de créditos'],['gasto','Gastos y pagos'],['caja','Caja'],['tarjeta','Cuenta bancaria'],['ahorro','Ahorro'],['bolsa','Dinero retirado']].map(o=>`<option value="${o[0]}" ${h.tipo===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
+    <label class="f">Tipo<select data-change="h_tipo">${[['','Todos'],['venta','Ventas'],['credito','Ventas a crédito'],['abono','Cobros de créditos'],['traspaso','Cambios de dinero'],['gasto','Gastos y pagos'],['caja','Caja'],['tarjeta','Cuenta bancaria'],['ahorro','Ahorro'],['bolsa','Dinero retirado']].map(o=>`<option value="${o[0]}" ${h.tipo===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
     <label class="f">Categoría<select data-change="h_cat">${[['','Todas']].concat(S.categorias.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.cat===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
     <label class="f">Proveedor/tercero<select data-change="h_dest">${dests.map(o=>`<option value="${o[0]}" ${h.dest===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label>
     <label class="f">Método<select data-change="h_metodo">${[['','Todos']].concat(S.metodos.map(c=>[c.id,c.nombre])).map(o=>`<option value="${o[0]}" ${h.metodo===o[0]?'selected':''}>${esc(o[1])}</option>`).join('')}</select></label></div>`;
   const ing=sum(l.filter(m=>m.k==='venta').map(m=>m.imp)),gas=sum(l.filter(m=>m.k==='gasto').map(m=>m.imp));
-  const rows=l.slice(0,500).map(m=>`<tr><td>${fmtF(m.fecha)}</td><td>${m.hora}</td><td>${esc(m.tipo)}</td><td>${esc(nombre(S.categorias,m.cat))}</td><td>${esc(m.dest)}</td><td>${esc(nombre(S.metodos,m.met))}</td><td>${esc(m.nota)}</td><td class="r ${m.s>0?'pos':'neg'}">${m.s>0?'+':'−'}${money(m.imp)}</td><td><button class="btn sm" data-act="edit" data-k="${m.k}" data-id="${m.id}">Editar</button></td></tr>`).join('');
+  const rows=l.slice(0,500).map(m=>`<tr><td>${fmtF(m.fecha)}</td><td>${m.hora}</td><td>${esc(m.tipo)}</td><td>${esc(nombre(S.categorias,m.cat))}</td><td>${esc(m.dest)}</td><td>${esc(nombre(S.metodos,m.met))}</td><td>${esc(m.nota)}</td><td class="r ${m.s>0?'pos':m.s<0?'neg':''}">${m.s>0?'+':m.s<0?'−':'⇄ '}${money(m.imp)}</td><td><button class="btn sm" data-act="edit" data-k="${m.k}" data-id="${m.id}">Editar</button></td></tr>`).join('');
   const bit_=UI.bitacora?`<div class="tw" style="margin-top:8px"><table><tr><th>Fecha y hora</th><th>Acción</th><th>Detalle</th></tr>${S.log.slice(-150).reverse().map(x=>`<tr><td>${new Date(x.ts).toLocaleString('es-MX')}</td><td>${esc(x.accion)}</td><td>${esc(x.desc)}</td></tr>`).join('')||'<tr><td colspan="3">Sin cambios registrados.</td></tr>'}</table></div>`:'';
   return `<div class="h"><h2>Historial</h2><div><button class="btn" data-act="limpiaHist">Limpiar filtros</button> <button class="btn ver" data-act="csvHist">Exportar CSV</button></div></div>${F}
   <div class="grid">${card('Movimientos',l.length)}${card('Ventas (filtro)',money(ing))}${card('Gastos (filtro)',money(gas))}</div>
@@ -1027,9 +1082,10 @@ function vBolsa(){
   Object.keys(S.cajaDia).forEach(k=>{const c=S.cajaDia[k].cierre;if(c)it.push({f:k,h:c.hora||'',s:1,imp:c.retirado,txt:'Retiro por cierre de caja',a:`<button class="btn sm" data-act="verCierre" data-f="${k}">Ver cierre</button>`});});
   S.bolsaMovs.forEach(x=>it.push({f:x.fecha,h:x.hora,s:x.tipo==='entrada'?1:-1,imp:x.importe,txt:x.nota||'Ajuste manual',a:acc('bolsa',x.id)}));
   S.gastos.filter(g=>g.origen==='retirado'&&tipoMetodo(S,g.metodo)==='efectivo').forEach(g=>it.push({f:g.fecha,h:g.hora,s:-1,imp:g.importe,txt:'Gasto · '+(nombre(S.categorias,g.categoria)||'')+(destNombre(g)?' · '+destNombre(g):''),a:`<button class="btn sm" data-act="edit" data-k="gasto" data-id="${g.id}">Editar</button>`}));
+  S.traspasos.filter(x=>x.origen==='retirado'||x.destino==='retirado').forEach(x=>it.push({f:x.fecha,h:x.hora,s:x.destino==='retirado'?1:-1,imp:x.importe,txt:'Cambio de dinero: '+NOMB[x.origen]+' → '+NOMB[x.destino]+(x.nota?' · '+x.nota:''),a:acc('traspaso',x.id)}));
   it.sort((a,b)=>(b.f+b.h).localeCompare(a.f+a.h));
   const saldo=calcBolsa(S);
-  return `<div class="h"><h2>Dinero retirado</h2><button class="btn" data-act="nuevoBolsa">+ Ajuste manual</button></div>
+  return `<div class="h"><h2>Dinero retirado</h2><div><button class="btn" data-act="nuevoTraspaso" data-o="banco" data-d="retirado">🔄 Cambio de dinero</button> <button class="btn" data-act="nuevoBolsa">+ Ajuste manual</button></div></div>
   <div class="grid">${card('Disponible (el que nos llevamos)',money(saldo),'big')}</div>
   ${saldo<0?'<div class="warn" style="margin-top:10px">⚠️ El saldo es negativo: registraste más gastos con dinero retirado que lo que se retiró en los cierres. Revisa los cierres o agrega un ajuste.</div>':''}
   <p class="mut">Es el efectivo que sacas de la caja al cerrar. Cuando compres algo con ese dinero, al registrar el gasto elige “Dinero retirado” y se descuenta de aquí, no de la caja.</p>
@@ -1151,12 +1207,12 @@ function csv(filas){return '\ufeff'+filas.map(r=>r.map(c=>{c=String(c==null?'':c
 function filasMov(l){return [['Fecha','Hora','Tipo','Categoría','Destinatario','Método','Nota','Importe (MXN, + entra / − sale)']].concat(l.map(m=>[fmtF(m.fecha),m.hora,m.tipo,nombre(S.categorias,m.cat),m.dest,nombre(S.metodos,m.met),m.nota,(m.s<0?'-':'')+decimal(m.imp)]));}
 const ACT={
   ir:e=>ir(e.t),mas:()=>modal('Más secciones',`<div class="menu">${TABS.filter(t=>!BOTTOM.includes(t[0])).map(t=>`<button class="btn" data-act="ir" data-t="${t[0]}">${t[1]} ${t[2]}</button>`).join('')}</div>`),
-  cerrar,cierre:formCierre,reabrir:reabrirCierre,copiarCierre:()=>copiarCierre(UI.fecha),nuevoBolsa:()=>formBolsaMov(),nuevoCredito:()=>formCredito(),cobrar:e=>formAbono(e.id),verCredito:e=>verCredito(e.id),filtroCobrar:e=>{UI.cobrarFiltro=e.v;render();},
+  cerrar,cierre:formCierre,reabrir:reabrirCierre,copiarCierre:()=>copiarCierre(UI.fecha),nuevoBolsa:()=>formBolsaMov(),nuevoCredito:()=>formCredito(),nuevoTraspaso:e=>formTraspaso(null,e.o,e.d),cobrar:e=>formAbono(e.id),verCredito:e=>verCredito(e.id),filtroCobrar:e=>{UI.cobrarFiltro=e.v;render();},
   verCierre:e=>{UI.fecha=e.f;UI.tab='caja';render();window.scrollTo(0,0);},
   csvCierres:()=>{const rows=[['Fecha','Esperado','Contado','Diferencia','Se quedó en caja','A ahorro','Se llevó','Nota']].concat(Object.keys(S.cajaDia).filter(k=>S.cajaDia[k].cierre).sort().map(k=>{const c=S.cajaDia[k].cierre;return [fmtF(k),decimal(c.esperado),decimal(c.contado),(c.diferencia<0?'-':'')+decimal(Math.abs(c.diferencia)),decimal(c.fondo),decimal(c.ahorro||0),decimal(c.retirado),c.nota||'']}));descargar('cierres-suchef-'+hoy()+'.csv',csv(rows),'text/csv;charset=utf-8');},
   dia:e=>{UI.fecha=addDays(UI.fecha,+e.n);render();},hoy:()=>{UI.fecha=hoy();render();},
   nuevo:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov})[e.k](),
-  edit:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov,ahorro:formAhorroMov,bolsa:formBolsaMov,credito:formCredito,abono:editarAbono})[e.k](e.id),
+  edit:e=>({venta:formVenta,gasto:formGasto,caja:formCajaMov,tarjeta:formTarjetaMov,ahorro:formAhorroMov,bolsa:formBolsaMov,credito:formCredito,abono:editarAbono,traspaso:formTraspaso})[e.k](e.id),
   del:e=>{borrarRec(e.k,e.id);if((e.k==='abono'||e.k==='credito')&&$('#modal').classList.contains('open'))cerrar();},saldoini:formSaldoInicial,conteo:formConteo,ajusteTj:formAjusteTarjeta,
   nuevoAhorro:e=>formAhorroMov(null,e.c),selAhorro:e=>{UI.ahorroSel=e.c;render();},
   nuevoCat:e=>formCat(e.t),editCat:e=>formCat(e.t,e.id),togCat:e=>toggleCat(e.t,e.id),
